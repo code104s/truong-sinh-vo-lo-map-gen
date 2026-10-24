@@ -302,3 +302,92 @@ export function ridgeMetrics(world: WorldData): RidgeMetrics {
     pathsEndingHigh: ridges.paths.length ? ending / ridges.paths.length : 1,
   };
 }
+
+/** Region types for the stamp density review (replaces V6). */
+export const REGIONS = ['mountain', 'plateau', 'foothill', 'valley', 'plain', 'coast'] as const;
+export type Region = (typeof REGIONS)[number];
+
+/**
+ * Region of every land cell, from data only: coast = within 2 cells of sea; valley = within 1 cell
+ * of a river carrying ≥ 3× the threshold where the ground is at least rolling; plateau = high and
+ * nearly flat; mountain = at or above mountainLevel; foothill = rolling ground within 6 cells of
+ * mountain ground; plain = everything else (low land and open rolling country away from ranges).
+ * Sea and lake cells get -1. Precedence follows that order.
+ */
+export function regionMap(world: WorldData): Int8Array {
+  const { hydro, config: cfg } = world;
+  const w = cfg.size, n = w * w, H = hydro.height;
+  const out = new Int8Array(n).fill(-1);
+  const near = (c: number, r: number, f: (b: number) => boolean) => {
+    const x = c % w, y = (c - x) / w;
+    for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+      const xx = x + dx, yy = y + dy;
+      if (xx >= 0 && yy >= 0 && xx < w && yy < w && f(yy * w + xx)) return true;
+    }
+    return false;
+  };
+  const bigRiver = (b: number) => hydro.river[b] === 1 && hydro.acc[b] >= 3 * hydro.riverThreshold;
+  // Chebyshev distance to mountain ground (capped), by BFS.
+  const toMtn = new Uint8Array(n).fill(255);
+  const q: number[] = [];
+  for (let c = 0; c < n; c++) if (!hydro.sea[c] && H[c] >= cfg.mountainLevel) { toMtn[c] = 0; q.push(c); }
+  for (let head = 0; head < q.length; head++) {
+    const c = q[head], x = c % w, y = (c - x) / w;
+    if (toMtn[c] >= 8) continue;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const xx = x + dx, yy = y + dy;
+      if (xx < 0 || yy < 0 || xx >= w || yy >= w) continue;
+      const b = yy * w + xx;
+      if (toMtn[b] > toMtn[c] + 1) { toMtn[b] = toMtn[c] + 1; q.push(b); }
+    }
+  }
+  for (let c = 0; c < n; c++) {
+    if (hydro.sea[c] || hydro.lakeId[c]) continue;
+    const x = c % w, y = (c - x) / w;
+    const gx = (H[y * w + Math.min(w - 1, x + 1)] - H[y * w + Math.max(0, x - 1)]) / 2;
+    const gy = (H[Math.min(w - 1, y + 1) * w + x] - H[Math.max(0, y - 1) * w + x]) / 2;
+    const slope = Math.sqrt(gx * gx + gy * gy) * w; // height units per map width
+    const rolling = cfg.hillLevel - 0.14;
+    let r: Region;
+    if (near(c, 2, (b) => hydro.sea[b] === 1)) r = 'coast';
+    else if (H[c] >= rolling && near(c, 1, bigRiver)) r = 'valley';
+    else if (H[c] >= cfg.mountainLevel - 0.04 && slope < 1.2) r = 'plateau';
+    else if (H[c] >= cfg.mountainLevel) r = 'mountain';
+    else if (H[c] >= rolling && toMtn[c] <= 6) r = 'foothill';
+    else r = 'plain';
+    out[c] = REGIONS.indexOf(r);
+  }
+  return out;
+}
+
+export interface RegionDensity {
+  cells: Record<Region, number>;
+  /** Share of the region's cells covered by at least one stamp's visual bounds. */
+  coverage: Record<Region, number>;
+  /** Stamp count by composer role. */
+  roles: Record<string, number>;
+}
+
+export function regionDensity(world: WorldData, manifest: Manifest): RegionDensity {
+  const w = world.config.size;
+  const reg = regionMap(world);
+  const covered = new Uint8Array(w * w);
+  const roles: Record<string, number> = {};
+  for (const s of world.composition.stamps) {
+    roles[s.role] = (roles[s.role] ?? 0) + 1;
+    const r = visualRect(s, manifest);
+    for (let cy = Math.max(0, Math.floor(r.y0)); cy <= Math.min(w - 1, Math.floor(r.y1)); cy++) {
+      for (let cx = Math.max(0, Math.floor(r.x0)); cx <= Math.min(w - 1, Math.floor(r.x1)); cx++) covered[cy * w + cx] = 1;
+    }
+  }
+  const cells = Object.fromEntries(REGIONS.map((k) => [k, 0])) as Record<Region, number>;
+  const cov = Object.fromEntries(REGIONS.map((k) => [k, 0])) as Record<Region, number>;
+  for (let c = 0; c < w * w; c++) {
+    if (reg[c] < 0) continue;
+    const k = REGIONS[reg[c]];
+    cells[k]++;
+    if (covered[c]) cov[k]++;
+  }
+  const coverage = Object.fromEntries(REGIONS.map((k) => [k, cells[k] ? cov[k] / cells[k] : 0])) as Record<Region, number>;
+  return { cells, coverage, roles };
+}
