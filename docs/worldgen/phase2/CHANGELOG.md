@@ -2,6 +2,23 @@
 
 Mỗi mục ghi đợt, loại thay đổi (render / art / worldgen), phiên bản worldgen và báo cáo chi tiết.
 
+## Đợt 2, B2 — hồ (worldgen 2.0.0, 2026-10-24)
+
+`WORLDGEN_VERSION` = 2.0.0. Golden v1 (`golden/worldgen-v1.json`) giữ nguyên và có test khoá sha256; hash 2.0.0 ghi vào `golden/worldgen-v2.candidate.json` cho tới khi anh nghiệm thu. Stage `terrain` của 20 seed vẫn bằng v1. Chi tiết và số đo: [02-worldgen-v2.md](02-worldgen-v2.md), mục "Kết quả B2".
+
+### Thêm
+- `src/worldgen/hydrology.ts`: hồ chọn theo cân bằng nước (`lakeCatchmentRatio` = 4), nước dâng từ ô thấp nhất và dừng ở yên ngựa giữa hai lòng chảo (`lakeSaddleDepth` = 0,005), làm sạch bờ. `Lake` thêm `surface`, `maxDepth`, `catchment`, `kind`, `outletType`; stream hydrology ghi các trường này.
+- `src/qa/golden.ts`, `scripts/update-golden.ts`: golden candidate / final theo major version, không bao giờ ghi đè v1.
+- `src/qa/metrics.ts`: `cellShape`, `lakeShapes` (dùng chung cho test và `analyze.ts`).
+- `tests/lakes.test.ts`: L2–L7, thuộc tính hồ, hồi quy tsvl-18 (hai hồ chỉ liền trên ảnh khi có dòng nối).
+- `scripts/qa/lake-criteria.py`, `scripts/qa/lake-tone.py`, `scripts/qa/review-cameras.ts`; `qa-shots.mjs --cameras` để chụp trước/sau cùng camera khi worldgen dời tiêu điểm Z2/Z3.
+
+### Đổi
+- `src/render/hydroView.ts`: đọc loại hồ và `outletType` từ worldgen; độ sâu tính từ mặt nước thật.
+- `scripts/analysis/analyze.ts`: gán pixel hồ theo hồ gần nhất, báo kèm số theo cách cũ; ghi độ sâu hồ vào mẫu.
+- `tests/composition.test.ts`: bỏ kiểm V6 (anh đã thay V6 bằng mật độ theo vùng; M7/M8 vào ở B4c). Ở B2, tsvl-04 có 60,06% đất trống.
+- `tests/render-geometry.test.ts`: số đường ra hồ trong A7 cập nhật 130 → 113.
+
 ## Đợt 1 — render và art (2026-10-24)
 
 `WORLDGEN_VERSION` giữ nguyên 1.0.0. Golden `golden/worldgen-v1.json` không đổi (20/20 seed khớp từng stage). Chi tiết và số đo: [01-render-changes.md](01-render-changes.md).

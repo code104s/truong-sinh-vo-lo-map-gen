@@ -3,7 +3,7 @@ import { Application, Container } from 'pixi.js';
 import manifestJson from '../assets/manifest.json';
 import { logicOf, type Manifest } from '../assets/manifestTypes';
 import { validateManifest } from '../assets/validate';
-import { Camera } from '../render/camera';
+import { Camera, type CameraState } from '../render/camera';
 import { CELL_PX, hexToNumber } from '../render/constants';
 import { buildFieldImage, sampleSdf } from '../render/fields';
 import { buildHydroView } from '../render/hydroView';
@@ -30,6 +30,8 @@ interface DebugApi {
   artMs?: number;
   warnings: string[];
   setView(name: ViewName): void;
+  /** Sets the camera directly (QA before/after shots pin Z2/Z3 to an earlier version's camera). */
+  setCamera(state: CameraState): void;
   setOverlay(on: boolean): void;
   /** Replaces the world in place (art is painted once per page). */
   loadSeed(seed: string): Promise<void>;
@@ -45,7 +47,7 @@ interface DebugApi {
 }
 const api: DebugApi = {
   ready: false, seed, warnings: [], stats: {},
-  setView: () => {}, setOverlay: () => {}, loadSeed: async () => {}, hashOnMain: async () => ({ worldHash: '', stages: {} }),
+  setView: () => {}, setCamera: () => {}, setOverlay: () => {}, loadSeed: async () => {}, hashOnMain: async () => ({ worldHash: '', stages: {} }),
   frameStats: () => ({ fps: 0, frames: [] }), resetFrames: () => {}, renderNow: () => {},
 };
 (window as unknown as { __tsvl: DebugApi }).__tsvl = api;
@@ -208,6 +210,7 @@ async function main(): Promise<void> {
   });
 
   api.setView = (name) => { if (built && camera) camera.set(reviewView(built.world, name, camera.fitZoom())); };
+  api.setCamera = (state) => { if (camera) camera.set(state); };
   api.setOverlay = (on) => { overlayOn = on; if (built) built.overlay.visible = on; };
   api.loadSeed = (s) => build(s);
   api.hashOnMain = async (s) => {

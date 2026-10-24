@@ -1,5 +1,7 @@
 // QA image set and browser determinism for gate G0.
-//   node scripts/qa-shots.mjs [outDir] [--no-shots] [--seeds a,b,c]
+//   node scripts/qa-shots.mjs [outDir] [--no-shots] [--seeds a,b,c] [--cameras cameras.json]
+// --cameras pins Z2/Z3 to the cameras in that file (scripts/qa/review-cameras.ts), so before/after
+// shots keep the same camera when a worldgen change moves the review focus.
 // One Chromium page paints the stamp art once, then loads each seed in place and captures Z1, Z2,
 // Z3 and a Z1 debug overlay. For every seed it records the worker hash, a main-thread hash, timings
 // and colour statistics of the rendered frame (V1). Writes report.json and index.html (contact sheet).
@@ -12,10 +14,16 @@ const args = process.argv.slice(2);
 const noShots = args.includes('--no-shots');
 const si = args.indexOf('--seeds');
 const seeds = si >= 0 ? args[si + 1].split(',') : Array.from({ length: 20 }, (_, i) => `tsvl-${String(i + 1).padStart(2, '0')}`);
-const outDir = args.find((a, i) => !a.startsWith('--') && args[i - 1] !== '--seeds') ?? 'qa-out';
+const ci = args.indexOf('--cameras');
+const cameras = ci >= 0 ? JSON.parse(readFileSync(args[ci + 1], 'utf8')) : null;
+const outDir = args.find((a, i) => !a.startsWith('--') && args[i - 1] !== '--seeds' && args[i - 1] !== '--cameras') ?? 'qa-out';
 mkdirSync(outDir, { recursive: true });
 
-const golden = existsSync('golden/worldgen-v1.json') ? JSON.parse(readFileSync('golden/worldgen-v1.json', 'utf8')) : null;
+// Golden of the built version: final file if accepted, else the candidate.
+const builtVersion = /WORLDGEN_VERSION = '(\d+)\./.exec(readFileSync('src/worldgen/config.ts', 'utf8'))[1];
+const goldenPath = [`golden/worldgen-v${builtVersion}.json`, `golden/worldgen-v${builtVersion}.candidate.json`].find((p) => existsSync(p));
+const golden = goldenPath ? JSON.parse(readFileSync(goldenPath, 'utf8')) : null;
+console.log(`golden: ${goldenPath ?? 'none'}`);
 
 const srv = await startServer();
 const browser = await chromium.launch({ args: LAUNCH_ARGS });
@@ -68,7 +76,12 @@ for (const seed of seeds) {
   };
   if (!noShots) {
     for (const view of ['Z1', 'Z2', 'Z3']) {
-      await page.evaluate((v) => { window.__tsvl.setOverlay(false); window.__tsvl.setView(v); window.__tsvl.renderNow(); }, view);
+      const cam = cameras?.seeds[seed]?.[view] ?? null;
+      await page.evaluate(([v, c]) => {
+        window.__tsvl.setOverlay(false);
+        if (c) window.__tsvl.setCamera(c); else window.__tsvl.setView(v);
+        window.__tsvl.renderNow();
+      }, [view, cam]);
       const file = `${seed}_${view}.png`;
       await page.screenshot({ path: join(outDir, file) });
       row.shots[view] = file;
@@ -89,6 +102,7 @@ const report = {
   artMs: Math.round(artMs),
   allWorkerEqualsMain: rows.every((r) => r.workerEqualsMain),
   allMatchNodeGolden: golden ? rows.every((r) => r.matchesNodeGolden) : null,
+  cameras: cameras ? args[ci + 1] : 'own review views',
   rows,
 };
 writeFileSync(join(outDir, 'report.json'), JSON.stringify(report, null, 2));

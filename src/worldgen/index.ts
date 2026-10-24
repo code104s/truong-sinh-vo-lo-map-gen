@@ -59,6 +59,11 @@ export function serializeStages(world: WorldData, logic: ManifestLogic): Record<
     hydrology.f64(l.level);
     hydrology.u32(l.cells);
     hydrology.i32(l.outlet);
+    hydrology.f64(l.surface);
+    hydrology.f64(l.maxDepth);
+    hydrology.f64(l.catchment);
+    hydrology.u8(l.kind);
+    hydrology.u8(l.outletType);
   }
   hydrology.u32(hydro.rivers.length);
   for (const r of hydro.rivers) hydrology.i32array(Int32Array.from(r.cells));

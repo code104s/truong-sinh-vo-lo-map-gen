@@ -1,8 +1,10 @@
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_CONFIG, WORLDGEN_VERSION, configKey } from '../src/worldgen/config';
 import { generateWorld, hashWorld } from '../src/worldgen/index';
 import { terrainClassDifference } from '../src/qa/metrics';
+import { GOLDEN_CANDIDATE, GOLDEN_FINAL, GOLDEN_V1_SHA256 } from '../src/qa/golden';
 import { QA_SEEDS, logic, world } from './worlds';
 
 describe('determinism contract', () => {
@@ -12,9 +14,24 @@ describe('determinism contract', () => {
     expect(hashes.size).toBe(1);
   });
 
+  it('keeps golden v1 frozen (traceability of worldgen 1.0.0)', () => {
+    const sha = createHash('sha256').update(readFileSync('golden/worldgen-v1.json')).digest('hex');
+    expect(sha).toBe(GOLDEN_V1_SHA256);
+  });
+
+  it('wave 2 leaves the terrain stage byte-identical to worldgen 1.0.0', async () => {
+    const v1 = JSON.parse(readFileSync('golden/worldgen-v1.json', 'utf8'));
+    for (const seed of QA_SEEDS) {
+      const h = await hashWorld(world(seed), logic);
+      expect({ seed, terrain: h.stages.terrain }).toEqual({ seed, terrain: v1.seeds[seed].stages.terrain });
+    }
+  });
+
   it('matches the golden hashes for all 20 QA seeds, stage by stage', async () => {
-    expect(existsSync('golden/worldgen-v1.json'), 'run scripts/update-golden.ts').toBe(true);
-    const golden = JSON.parse(readFileSync('golden/worldgen-v1.json', 'utf8'));
+    // Final golden once the version is accepted, the candidate while it is under review.
+    const path = existsSync(GOLDEN_FINAL) ? GOLDEN_FINAL : GOLDEN_CANDIDATE;
+    expect(existsSync(path), 'run scripts/update-golden.ts').toBe(true);
+    const golden = JSON.parse(readFileSync(path, 'utf8'));
     expect(golden.worldgenVersion).toBe(WORLDGEN_VERSION);
     expect(golden.config).toBe(configKey(DEFAULT_CONFIG));
     expect(golden.logic, 'manifest logic changed: bump WORLDGEN_VERSION').toBe(JSON.stringify(logic));

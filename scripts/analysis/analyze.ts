@@ -9,6 +9,7 @@ import { generateWorld, type WorldData } from '../../src/worldgen/index';
 import { buildFieldImage, FIELD_UPSAMPLE, SDF_RANGE } from '../../src/render/fields';
 import { buildHydroView, LAKE_KIND_CODE } from '../../src/render/hydroView';
 import { DX8, DY8 } from '../../src/core/grid';
+import { cellShape as shape } from '../../src/qa/metrics';
 import { encodePng } from '../png';
 import { terrainParts, type TerrainParts } from './terrain-parts';
 
@@ -24,43 +25,6 @@ const Z1_PX_PER_CELL = 7.5;
 const RIVER_FAR_SCALE = 2.4;
 
 type Pt = [number, number];
-
-function hullArea(pts: Pt[]): number {
-  const p = [...pts].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
-  if (p.length < 3) return 0;
-  const cross = (o: Pt, a: Pt, b: Pt) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
-  const lower: Pt[] = [], upper: Pt[] = [];
-  for (const q of p) { while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], q) <= 0) lower.pop(); lower.push(q); }
-  for (let i = p.length - 1; i >= 0; i--) { const q = p[i]; while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], q) <= 0) upper.pop(); upper.push(q); }
-  const h = lower.slice(0, -1).concat(upper.slice(0, -1));
-  let a = 0;
-  for (let i = 0; i < h.length; i++) { const j = (i + 1) % h.length; a += h[i][0] * h[j][1] - h[j][0] * h[i][1]; }
-  return Math.abs(a) / 2;
-}
-
-/** Shape of a set of unit cells: area, 4-edge perimeter, compactness, PCA elongation, solidity, axis angle. */
-function shape(cells: Pt[]) {
-  const A = cells.length;
-  const set = new Set(cells.map(([x, y]) => x * 4096 + y));
-  let P = 0;
-  for (const [x, y] of cells) for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (!set.has((x + dx) * 4096 + (y + dy))) P++;
-  let mx = 0, my = 0;
-  for (const [x, y] of cells) { mx += x; my += y; }
-  mx /= A; my /= A;
-  let sxx = 0, syy = 0, sxy = 0;
-  for (const [x, y] of cells) { sxx += (x - mx) ** 2; syy += (y - my) ** 2; sxy += (x - mx) * (y - my); }
-  sxx = sxx / A + 1 / 12; syy = syy / A + 1 / 12; sxy /= A;
-  const tr = sxx + syy, det = sxx * syy - sxy * sxy;
-  const l1 = tr / 2 + Math.sqrt(Math.max(0, tr * tr / 4 - det)), l2 = tr / 2 - Math.sqrt(Math.max(0, tr * tr / 4 - det));
-  const corners: Pt[] = [];
-  for (const [x, y] of cells) corners.push([x, y], [x + 1, y], [x, y + 1], [x + 1, y + 1]);
-  const hull = hullArea(corners);
-  return {
-    area: A, perimeter: P, compactness: (4 * Math.PI * A) / (P * P), elongation: Math.sqrt(l1 / Math.max(1e-9, l2)),
-    solidity: A / Math.max(1, hull), angle: (Math.atan2(2 * sxy, sxx - syy) / 2) * 180 / Math.PI, cx: mx + 0.5, cy: my + 0.5,
-    lengthAxis: 4 * Math.sqrt(l1), widthAxis: 4 * Math.sqrt(Math.max(0, l2)),
-  };
-}
 
 function components(mask: Uint8Array, w: number, conn8 = false): number[][] {
   const seen = new Uint8Array(mask.length);
@@ -226,7 +190,7 @@ for (const seed of seeds) {
   const lakes = hydro.lakes.map((L) => {
     const cells = lakeCells.get(L.id) ?? [];
     const sh = shape(pts(cells, n));
-    const depths = cells.map((c) => L.level - H[c]);
+    const depths = cells.map((c) => L.surface - H[c]);
     const inLake = new Set(cells);
     // Rim: land cells within 6 cells of the lake (Chebyshev).
     let rimMax = -1, rimSteep = 0, rimN = 0;
@@ -247,17 +211,17 @@ for (const seed of seeds) {
         const b = y * n + x;
         if (inLake.has(b)) continue;
         rimN++;
-        if (H[b] - L.level > 0.02) rimSteep++;
+        if (H[b] - L.surface > 0.02) rimSteep++;
       }
     }
-    const relief = rimMax - L.level;
-    const kind = L.level >= cfg.hillLevel ? 'mountain' : relief >= 0.12 ? 'valley' : 'plain';
+    const relief = rimMax - L.surface;
+    const kind = (['none', 'mountain', 'valley', 'plain'] as const)[L.kind];
     const zoneMean = mean(cells.map((c) => parts.zone[c]));
     const mtnTerm = mean(cells.map((c) => parts.mountains[c]));
     const dep = depComp[cells[0]];
     const depSize = dep >= 0 ? deps[dep].length : cells.length;
     // Rendered lake: field pixels inside this lake's dilated bbox that are water and not sea-connected.
-    let rArea = 0;
+    let rArea = 0, rAreaAny = 0;
     const rPts: Pt[] = [];
     const x0 = Math.max(0, Math.floor((sh.cx - sh.lengthAxis - 3) * U)), x1 = Math.min(FN - 1, Math.ceil((sh.cx + sh.lengthAxis + 3) * U));
     const y0 = Math.max(0, Math.floor((sh.cy - sh.lengthAxis - 3) * U)), y1 = Math.min(FN - 1, Math.ceil((sh.cy + sh.lengthAxis + 3) * U));
@@ -265,14 +229,23 @@ for (const seed of seeds) {
       if (!rWater[y * FN + x]) continue;
       const c = Math.floor(y / U) * n + Math.floor(x / U);
       if (hydro.sea[c]) continue;
-      // Attribute to this lake when the nearest lake cell within 2 cells is ours.
-      const cx = Math.floor(x / U), cy = Math.floor(y / U);
-      let ours = false;
-      for (let dy = -2; dy <= 2 && !ours; dy++) for (let dx = -2; dx <= 2 && !ours; dx++) {
+      // Wave 1 rule (kept for comparison): ours when any lake cell of ours lies within 2 cells.
+      // Wave 2 rule: ours when the nearest lake cell within 2 cells (by distance from the pixel
+      // centre, ties to the lower id) is ours, so a pixel between two close lakes counts once.
+      const px = (x + 0.5) / U, py = (y + 0.5) / U;
+      const cx = Math.floor(px), cy = Math.floor(py);
+      let any = false, bestD = Infinity, bestId = 0;
+      for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
         const xx = cx + dx, yy = cy + dy;
-        if (xx >= 0 && yy >= 0 && xx < n && yy < n && hydro.lakeId[yy * n + xx] === L.id) ours = true;
+        if (xx < 0 || yy < 0 || xx >= n || yy >= n) continue;
+        const id = hydro.lakeId[yy * n + xx];
+        if (!id) continue;
+        if (id === L.id) any = true;
+        const d = (xx + 0.5 - px) ** 2 + (yy + 0.5 - py) ** 2;
+        if (d < bestD || (d === bestD && id < bestId)) { bestD = d; bestId = id; }
       }
-      if (!ours) continue;
+      if (any) rAreaAny++;
+      if (bestId !== L.id) continue;
       rArea++;
       rPts.push([x, y]);
     }
@@ -281,11 +254,12 @@ for (const seed of seeds) {
     return {
       id: L.id, kind, area: sh.area, elongation: r3(sh.elongation), solidity: r3(sh.solidity), compactness: r3(sh.compactness),
       length: r3(sh.lengthAxis), width: r3(sh.widthAxis), angle: Math.round(sh.angle),
-      level: r3(L.level), maxDepth: r3(Math.max(...depths)), meanDepth: r3(mean(depths)), rimRelief: r3(relief), rimSteepShare: r3(rimSteep / Math.max(1, rimN)),
+      level: r3(L.level), surface: r3(L.surface), catchment: Math.round(L.catchment),
+      outletType: (['none', 'ocean', 'lake', 'regionBoundary'] as const)[L.outletType], maxDepth: r3(Math.max(...depths)), meanDepth: r3(mean(depths)), rimRelief: r3(relief), rimSteepShare: r3(rimSteep / Math.max(1, rimN)),
       zone: r3(zoneMean), mountainTerm: r3(mtnTerm), depressionCells: depSize, truncated: depSize > cells.length,
       inflowRivers: inflows, outlet: L.outlet, outletIsRiver: L.outlet >= 0 ? hydro.river[L.outlet] === 1 : false,
       outletAcc: L.outlet >= 0 ? Math.round(hydro.acc[L.outlet]) : 0,
-      renderedAreaRatio: r3(rArea / (U * U) / sh.area), renderedSolidity: rSh ? r3(rSh.solidity) : null, renderedElongation: rSh ? r3(rSh.elongation) : null,
+      renderedAreaRatio: r3(rArea / (U * U) / sh.area), renderedAreaRatioAny: r3(rAreaAny / (U * U) / sh.area), renderedSolidity: rSh ? r3(rSh.solidity) : null, renderedElongation: rSh ? r3(rSh.elongation) : null,
       cx: r3(sh.cx), cy: r3(sh.cy),
     };
   });
@@ -533,6 +507,8 @@ for (const seed of seeds) {
     lakeId: Array.from(hydro.lakeId),
     // Render-side lake kind (1 mountain, 2 valley, 3 plain) per cell, for the lake tone check (A3).
     lakeKind: (() => { const v = buildHydroView(world); return Array.from(hydro.lakeId, (id) => (id ? LAKE_KIND_CODE[v.lakes[id - 1].kind] : 0)); })(),
+    // Lake depth below the water surface per cell (render depth), for the per-depth tone check.
+    lakeDepth: Array.from(buildHydroView(world).depth, (d) => Math.round(d * 1e4) / 1e4),
   }));
   console.log(seed, JSON.stringify({ lakes: lakes.length, rivers: rivers.byEnd, stamps: st.length }));
 }

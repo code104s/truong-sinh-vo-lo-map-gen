@@ -1,16 +1,32 @@
 // Hydrology: sea classification, priority-flood, lakes with a single outlet, D8 receivers,
 // crossing fixes, explicit topological order, flow accumulation, rivers and basins.
+import { CellHeap } from '../core/heap';
 import { DX8, DY8, isEdge } from '../core/grid';
 import { hash01, seedToU32 } from '../core/rng';
 import type { WorldConfig } from './config';
 import { accumulate, d8Receivers, priorityFlood, topoOrder, tracePaths } from './flow';
 
+/** Lake setting, from the water level and the ground around it. Codes are stored in the stream. */
+export const LAKE_KIND = { mountain: 1, valley: 2, plain: 3 } as const;
+/** Where a lake's outflow goes first: the sea, another lake, or out of the region at the map edge. */
+export const OUTLET_TYPE = { none: 0, ocean: 1, lake: 2, regionBoundary: 3 } as const;
+
 export interface Lake {
   id: number;
+  /** Spill level of the depression (the filled surface); routing uses it. */
   level: number;
   cells: number;
   /** Cell outside the lake that every lake cell drains to. */
   outlet: number;
+  /** Water surface: the highest lake cell. Below `level` when the lake fills only the deep core. */
+  surface: number;
+  maxDepth: number;
+  /** Land cells draining into the depression before lakes were formed. */
+  catchment: number;
+  /** LAKE_KIND code. */
+  kind: number;
+  /** OUTLET_TYPE code. */
+  outletType: number;
 }
 
 export interface RiverPath {
@@ -126,6 +142,18 @@ export function generateHydrology(seed: string, input: Float32Array, cfg: WorldC
     basinId[c] = r < 0 ? c : basinId[r];
   }
 
+  // 10. Where each lake's outflow goes first.
+  for (const L of lakes) {
+    if (L.outlet < 0) continue;
+    let c = L.outlet;
+    for (let steps = 0; steps < n; steps++) {
+      if (sea[c]) { L.outletType = OUTLET_TYPE.ocean; break; }
+      if (lakeId[c] && lakeId[c] !== L.id) { L.outletType = OUTLET_TYPE.lake; break; }
+      if (receiver[c] < 0) { L.outletType = OUTLET_TYPE.regionBoundary; break; }
+      c = receiver[c];
+    }
+  }
+
   return {
     height, filled, sea, lakeId, lakes, receiver, order: topo.order, acc, river,
     riverThreshold, rivers, basinId, popOrder: flood.popOrder, landCells,
@@ -155,11 +183,22 @@ function findLakes(
     if (!sea[i] && filled[i] - height[i] > cfg.minLakeDepth) deep[i] = 1;
   }
 
-  // Oversized depressions keep only their deepest part as open water; the shallow rim stays land
-  // at the same filled level (a flat marsh that drains along the flood tree).
+  // Water balance (worldgen 2.0.0): each depression holds open water only in its deepest core,
+  // filled from the lowest cell upwards like rising water, up to catchment / lakeCatchmentRatio
+  // cells (and maxLakeArea). The shallow rest stays land at the filled level, a flat marsh that
+  // drains along the flood tree. A small catchment gives a small lake or none.
   const maxArea = Math.max(cfg.minLakeArea, Math.round(cfg.maxLakeArea * n));
+  const pre = topoOrder(receiver, null);
+  const rain0 = new Float32Array(n);
+  for (let i = 0; i < n; i++) rain0[i] = sea[i] ? 0 : 1;
+  const acc0 = accumulate(pre.order, receiver, rain0);
+  const catchmentOf = new Float32Array(n);
   {
     const seen = new Uint8Array(n);
+    const inLake = new Uint8Array(n);
+    const dropped = new Uint8Array(n);
+    const cand = new Uint8Array(n);
+    const heap = new CellHeap(256);
     for (let start = 0; start < n; start++) {
       if (!deep[start] || seen[start]) continue;
       const group = [start];
@@ -174,10 +213,109 @@ function findLakes(
           if (deep[nb] && !seen[nb]) { seen[nb] = 1; group.push(nb); }
         }
       }
-      if (group.length <= maxArea) continue;
-      const depths = group.map((c) => filled[c] - height[c]).sort((a, b) => b - a);
-      const cut = depths[maxArea];
-      for (const c of group) if (filled[c] - height[c] <= cut) deep[c] = 0;
+      // Every cell of a depression drains along the flood tree to its spill, so the largest
+      // accumulation inside it is the inflow from its whole catchment.
+      let catchment = 0, low = group[0];
+      for (const c of group) {
+        if (acc0[c] > catchment) catchment = acc0[c];
+        if (height[c] < height[low] || (height[c] === height[low] && c < low)) low = c;
+      }
+      for (const c of group) { deep[c] = 0; catchmentOf[c] = catchment; }
+      const allowed = Math.min(maxArea, Math.floor(catchment / cfg.lakeCatchmentRatio), group.length);
+      if (allowed < cfg.minLakeArea) continue;
+      // Rising water from the lowest cell, 4-connected, lowest ground first. A cell popped below
+      // the water level so far means the water crossed a saddle into another pit. All of that pit
+      // below the saddle pops before anything higher; if it is deeper than lakeSaddleDepth below
+      // the saddle and holds at least half of minLakeArea (a basin of its own, not a dip in a
+      // channel floor), the water stops at the saddle and the lake keeps its own sub-basin; the
+      // other pit stays marsh at the filled level.
+      const lake: number[] = [];
+      heap.push(low, height[low]);
+      inLake[low] = 1;
+      let top = -Infinity, cut = -1, saddle = 0, minSince = 0;
+      const ownBasin = () => saddle - minSince > cfg.lakeSaddleDepth && 2 * (lake.length - cut) >= cfg.minLakeArea;
+      while (heap.size > 0 && lake.length < allowed) {
+        const c = heap.pop();
+        if (height[c] < top) {
+          if (cut < 0) { cut = lake.length; saddle = top; minSince = height[c]; }
+          else if (height[c] < minSince) minSince = height[c];
+        } else {
+          if (cut >= 0 && height[c] > saddle) {
+            if (ownBasin()) { inLake[c] = 0; break; }
+            cut = -1;
+          }
+          top = height[c];
+        }
+        lake.push(c);
+        const cx = c % w, cy = (c - cx) / w;
+        for (let d = 0; d < 8; d += 2) {
+          const nx = cx + DX8[d], ny = cy + DY8[d];
+          if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+          const nb = ny * w + nx;
+          if (seen[nb] && !inLake[nb] && catchmentOf[nb] === catchment && filled[nb] === filled[low]) {
+            inLake[nb] = 1;
+            heap.push(nb, height[nb]);
+          }
+        }
+      }
+      if (cut >= 0 && ownBasin()) while (lake.length > cut) inLake[lake.pop()!] = 0;
+      // inLake now marks exactly this lake's cells.
+      while (heap.size > 0) inLake[heap.pop()] = 0;
+      // Shore clean-up. Arms one cell wide (cells with at most one lake neighbour) read as hooks
+      // and are dropped. Before that, a shore corner next to a stub (a cell of the same depression,
+      // at the same filled level, with two or more lake neighbours) fills, lowest ground first and
+      // within the water budget, so the pointed end of a long lake widens instead of being cut. Dropped cells never come back. A lake that would fall below
+      // minLakeArea is dropped whole.
+      const budget = Math.min(maxArea, Math.floor(catchment / cfg.lakeCatchmentRatio));
+      const level = filled[low];
+      let size = lake.length;
+      const lakeNbs = (c: number) => {
+        const cx = c % w, cy = (c - cx) / w;
+        let k = 0;
+        for (let d = 0; d < 8; d += 2) {
+          const nx = cx + DX8[d], ny = cy + DY8[d];
+          if (nx >= 0 && ny >= 0 && nx < w && ny < h && inLake[ny * w + nx]) k++;
+        }
+        return k;
+      };
+      // A stub is a tip whose one lake neighbour has three or more: a one-cell point on a body at
+      // least two cells wide, not the end of a one-cell-wide arm.
+      const stub = (c: number) => {
+        const cx = c % w, cy = (c - cx) / w;
+        for (let d = 0; d < 8; d += 2) {
+          const nx = cx + DX8[d], ny = cy + DY8[d];
+          if (nx >= 0 && ny >= 0 && nx < w && ny < h && inLake[ny * w + nx]) return lakeNbs(ny * w + nx) >= 3;
+        }
+        return false;
+      };
+      for (let round = 0, changed = true; changed && round < 16; round++) {
+        changed = false;
+        if (size < budget) {
+          const corners: number[] = [];
+          for (const c of lake) {
+            if (!inLake[c] || lakeNbs(c) !== 1 || !stub(c)) continue;
+            const cx = c % w, cy = (c - cx) / w;
+            for (let d = 0; d < 8; d += 2) {
+              const nx = cx + DX8[d], ny = cy + DY8[d];
+              if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+              const nb = ny * w + nx;
+              if (inLake[nb] || cand[nb] || dropped[nb] || deep[nb] || sea[nb] || filled[nb] !== level) continue;
+              if (lakeNbs(nb) >= 2) { cand[nb] = 1; corners.push(nb); }
+            }
+          }
+          corners.sort((a, b) => height[a] - height[b] || a - b);
+          for (const c of corners) {
+            cand[c] = 0;
+            if (size >= budget) continue;
+            inLake[c] = 1; seen[c] = 1; catchmentOf[c] = catchment; lake.push(c); size++; changed = true;
+          }
+        }
+        for (const c of lake) {
+          if (!inLake[c] || lakeNbs(c) > 1) continue;
+          inLake[c] = 0; dropped[c] = 1; size--; changed = true;
+        }
+      }
+      for (const c of lake) if (inLake[c]) { inLake[c] = 0; if (size >= cfg.minLakeArea) deep[c] = 1; }
     }
   }
 
@@ -237,9 +375,14 @@ function findLakes(
         break;
       }
     }
+    let surface = -Infinity;
+    for (const c of cells) if (height[c] > surface) surface = height[c];
+    let maxDepth = 0;
+    for (const c of cells) if (surface - height[c] > maxDepth) maxDepth = surface - height[c];
+    const info = { surface, maxDepth, catchment: catchmentOf[cells[0]], kind: lakeKind(cells, id, surface, height, sea, lakeId, w, h, cfg), outletType: OUTLET_TYPE.none };
     if (outlet < 0) {
       // No safe single outlet: keep flood-tree routing. Tests report lakes with >1 exit.
-      lakes.push({ id, level, cells: cells.length, outlet: -1 });
+      lakes.push({ id, level, cells: cells.length, outlet: -1, ...info });
       continue;
     }
 
@@ -271,9 +414,49 @@ function findLakes(
         bfs.push(nb);
       }
     }
-    lakes.push({ id, level, cells: cells.length, outlet });
+    lakes.push({ id, level, cells: cells.length, outlet, ...info });
   }
   return { lakeId, lakes };
+}
+
+/**
+ * Lake setting: mountain if the water sits near mountain level or in a deep upland bowl; valley if
+ * the rim stands well above the water and the lake is long or mostly steep-sided; else plain.
+ * Rim = highest ground within 6 cells; elongation from the second moments of the lake cells.
+ */
+function lakeKind(cells: number[], id: number, surface: number, height: Float32Array, sea: Uint8Array, lakeId: Uint16Array, w: number, h: number, cfg: WorldConfig): number {
+  const n = w * h;
+  let mx = 0, my = 0;
+  for (const c of cells) { mx += c % w; my += (c - (c % w)) / w; }
+  mx /= cells.length; my /= cells.length;
+  let sxx = 1 / 12, syy = 1 / 12, sxy = 0, rimMax = -Infinity, steep = 0, rim = 0;
+  const seen = new Uint8Array(n);
+  for (const c of cells) {
+    const cx = c % w, cy = (c - cx) / w;
+    sxx += (cx - mx) * (cx - mx) / cells.length; syy += (cy - my) * (cy - my) / cells.length; sxy += (cx - mx) * (cy - my) / cells.length;
+    for (let dy = -6; dy <= 6; dy++) for (let dx = -6; dx <= 6; dx++) {
+      const x = cx + dx, y = cy + dy;
+      if (x < 0 || y < 0 || x >= w || y >= h) continue;
+      const b = y * w + x;
+      if (seen[b] || lakeId[b] === id || sea[b]) continue;
+      seen[b] = 1;
+      if (height[b] > rimMax) rimMax = height[b];
+    }
+    for (let d = 0; d < 8; d += 2) {
+      const x = cx + DX8[d], y = cy + DY8[d];
+      if (x < 0 || y < 0 || x >= w || y >= h) continue;
+      const b = y * w + x;
+      if (lakeId[b] === id) continue;
+      rim++;
+      if (height[b] - surface > 0.02) steep++;
+    }
+  }
+  const tr = sxx + syy, det = sxx * syy - sxy * sxy, disc = Math.sqrt(Math.max(0, tr * tr / 4 - det));
+  const elongation = Math.sqrt((tr / 2 + disc) / Math.max(1e-9, tr / 2 - disc));
+  const relief = rimMax - surface;
+  if (surface >= cfg.mountainLevel - 0.04 || (relief >= 0.25 && surface >= cfg.hillLevel)) return LAKE_KIND.mountain;
+  if (relief >= 0.12 && (elongation >= 1.8 || steep / Math.max(1, rim) >= 0.5)) return LAKE_KIND.valley;
+  return LAKE_KIND.plain;
 }
 
 /** Follows receivers while the surface stays at the lake level; true if it re-enters the lake. */

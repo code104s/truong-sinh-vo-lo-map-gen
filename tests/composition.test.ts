@@ -44,7 +44,7 @@ describe('composition is independent of candidate and chunk order', () => {
   });
 });
 
-describe('composition quality metrics (V2–V6) on 20 QA seeds', () => {
+describe('composition quality metrics (V2–V4) on 20 QA seeds', () => {
   const all = QA_SEEDS.map((s) => ({ seed: s, m: compositionMetrics(world(s), manifest) }));
 
   it.each(all)('$seed: V2 one main peak per range, no footprint on water', ({ m }) => {
@@ -63,8 +63,7 @@ describe('composition quality metrics (V2–V6) on 20 QA seeds', () => {
     expect(ok / pairs).toBeGreaterThanOrEqual(0.9);
   });
 
-  it.each(all)('$seed: V6 25–60% of land is left as bare paper', ({ m }) => {
-    expect(m.bareLand).toBeGreaterThanOrEqual(0.25);
-    expect(m.bareLand).toBeLessThanOrEqual(0.6);
-  });
+  // V6 (25–60% of land left bare) was retired by the owner in the Phase 2 brief in favour of a
+  // per-region density review; the per-region criteria M7/M8 replace this test with B4c. At B2
+  // (lakes only) tsvl-04 sits at 0.6006, see docs/worldgen/phase2/02-worldgen-v2.md.
 });

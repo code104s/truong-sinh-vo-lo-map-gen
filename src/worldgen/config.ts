@@ -1,7 +1,7 @@
 // Every parameter that affects output bytes lives here. Changing any default = MAJOR bump of WORLDGEN_VERSION.
 
 /** Semver. MAJOR changes whenever the same seed produces different bytes. */
-export const WORLDGEN_VERSION = '1.0.0';
+export const WORLDGEN_VERSION = '2.0.0';
 
 export interface WorldConfig {
   size: number;
@@ -14,6 +14,10 @@ export interface WorldConfig {
   minLakeArea: number;
   /** Largest open-water area of one depression, as a fraction of the map. */
   maxLakeArea: number;
+  /** Water balance: a lake's open water is at most its catchment (cells) divided by this. */
+  lakeCatchmentRatio: number;
+  /** Rising water stops at a saddle when the pit beyond it is deeper than this below the saddle. */
+  lakeSaddleDepth: number;
   /** River threshold as a fraction of land cells draining through a cell. */
   riverFraction: number;
   /** Ridges */
@@ -35,6 +39,8 @@ export const DEFAULT_CONFIG: WorldConfig = {
   minLakeDepth: 0.01,
   minLakeArea: 12,
   maxLakeArea: 0.012,
+  lakeCatchmentRatio: 4,
+  lakeSaddleDepth: 0.005,
   riverFraction: 0.008,
   ridgeFraction: 0.006,
   peakRadius: 4,

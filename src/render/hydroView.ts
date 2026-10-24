@@ -1,7 +1,6 @@
 // Read-only hydrology view for the renderer: Strahler order, how each river path starts and ends,
-// lake kind and depth. Derived from WorldData on demand and never written back, so worldgen bytes
-// are unaffected. Lake kind lives here only until worldgen 2.0.0 stores it (Phase 2, B2).
-import { DX8, DY8 } from '../core/grid';
+// lake depth. Derived from WorldData on demand and never written back, so worldgen bytes are
+// unaffected. Lake kind and outlet type are stored by worldgen since 2.0.0 (Phase 2, B2).
 import type { WorldData } from '../worldgen/index';
 
 export type LakeKind = 'mountain' | 'valley' | 'plain';
@@ -13,11 +12,15 @@ export type PathEnd = 'ocean' | 'lake' | 'junction' | 'regionBoundary';
 /** source = headwater (acc first reaches the river threshold); lakeOutflow = leaves a lake. */
 export type PathStart = 'source' | 'lakeOutflow';
 
+/** Where a lake's outflow goes first; none = no single outlet. */
+export type LakeOutlet = 'none' | 'ocean' | 'lake' | 'regionBoundary';
+
 export interface LakeView {
   id: number;
   kind: LakeKind;
+  outlet: LakeOutlet;
   cells: number;
-  /** Water level minus terrain height, max and mean over the lake (height units). */
+  /** Water surface minus terrain height, max and mean over the lake (height units). */
   maxDepth: number;
   meanDepth: number;
   /** Lake cell (inside the water) next to the outlet, -1 when the lake has no single outlet. */
@@ -40,7 +43,7 @@ export interface HydroView {
   maxOrder: number;
   /** Lake ids are 1-based: lakes[id - 1]. */
   lakes: LakeView[];
-  /** Per cell: lake depth (level - height) on lake cells, 0 elsewhere. */
+  /** Per cell: lake depth (surface - height) on lake cells, 0 elsewhere. */
   depth: Float32Array;
   paths: PathView[];
   /** Donor with the largest flow for every cell (-1 if none): the main stem upstream. */
@@ -75,55 +78,29 @@ export function buildHydroView(world: WorldData): HydroView {
     }
   }
 
-  // Lakes: depth, relief of the rim and shape give the kind.
+  // Lakes: kind and water surface come from worldgen (2.0.0); depth is measured from the surface.
+  const KIND_NAME: LakeKind[] = ['plain', 'mountain', 'valley', 'plain'];
+  const OUTLET_NAME: LakeOutlet[] = ['none', 'ocean', 'lake', 'regionBoundary'];
   const depth = new Float32Array(N);
   const members: number[][] = hydro.lakes.map(() => []);
   for (let c = 0; c < N; c++) {
     const id = hydro.lakeId[c];
     if (!id) continue;
     members[id - 1].push(c);
-    depth[c] = hydro.lakes[id - 1].level - H[c];
+    depth[c] = hydro.lakes[id - 1].surface - H[c];
   }
   const lakes: LakeView[] = hydro.lakes.map((L, i) => {
     const cells = members[i];
-    let maxDepth = 0, sum = 0, rimMax = -Infinity, steep = 0, rim = 0;
-    let mx = 0, my = 0;
-    for (const c of cells) { maxDepth = Math.max(maxDepth, depth[c]); sum += depth[c]; mx += c % n; my += Math.floor(c / n); }
-    mx /= cells.length; my /= cells.length;
-    let sxx = 1 / 12, syy = 1 / 12, sxy = 0;
-    const seen = new Uint8Array(N);
-    for (const c of cells) {
-      const cx = c % n, cy = (c - cx) / n;
-      sxx += (cx - mx) ** 2 / cells.length; syy += (cy - my) ** 2 / cells.length; sxy += (cx - mx) * (cy - my) / cells.length;
-      for (let dy = -6; dy <= 6; dy++) for (let dx = -6; dx <= 6; dx++) {
-        const x = cx + dx, y = cy + dy;
-        if (x < 0 || y < 0 || x >= n || y >= n) continue;
-        const b = y * n + x;
-        if (seen[b] || hydro.lakeId[b] === L.id || hydro.sea[b]) continue;
-        seen[b] = 1;
-        if (H[b] > rimMax) rimMax = H[b];
-      }
-      for (let d = 0; d < 8; d += 2) {
-        const x = cx + DX8[d], y = cy + DY8[d];
-        if (x < 0 || y < 0 || x >= n || y >= n) continue;
-        const b = y * n + x;
-        if (hydro.lakeId[b] === L.id) continue;
-        rim++;
-        if (H[b] - L.level > 0.02) steep++;
-      }
-    }
-    const tr = sxx + syy, det = sxx * syy - sxy * sxy, disc = Math.sqrt(Math.max(0, tr * tr / 4 - det));
-    const elongation = Math.sqrt((tr / 2 + disc) / Math.max(1e-9, tr / 2 - disc));
-    const relief = rimMax - L.level;
-    const kind: LakeKind =
-      L.level >= cfg.mountainLevel - 0.04 || (relief >= 0.25 && L.level >= cfg.hillLevel) ? 'mountain'
-        : relief >= 0.12 && (elongation >= 1.8 || steep / Math.max(1, rim) >= 0.5) ? 'valley'
-          : 'plain';
+    let maxDepth = 0, sum = 0;
+    for (const c of cells) { maxDepth = Math.max(maxDepth, depth[c]); sum += depth[c]; }
     let outletDonor = -1;
     if (L.outlet >= 0) {
       for (const c of cells) if (hydro.receiver[c] === L.outlet && (outletDonor < 0 || c < outletDonor)) outletDonor = c;
     }
-    return { id: L.id, kind, cells: cells.length, maxDepth, meanDepth: sum / Math.max(1, cells.length), outletDonor };
+    return {
+      id: L.id, kind: KIND_NAME[L.kind], outlet: OUTLET_NAME[L.outletType], cells: cells.length,
+      maxDepth, meanDepth: sum / Math.max(1, cells.length), outletDonor,
+    };
   });
 
   const paths: PathView[] = hydro.rivers.map((r) => {

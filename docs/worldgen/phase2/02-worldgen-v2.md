@@ -79,6 +79,35 @@ Thay "trung bình hồ núi tối hơn trung bình hồ đồng bằng ≥ 4 L*"
 
 Em sẽ đo cả cách cũ và cách mới, nhưng chỉ dùng cách mới làm tiêu chí khi anh đồng ý.
 
+### Kết quả B2 (2026-10-24)
+
+Đo trên 20 seed cũ. "Trước" là v1 (worldgen 1.0.0, ảnh Đợt 1); "sau" là B2 (2.0.0). Bảng đầy đủ: `qa-out/wave2-b2/lake-criteria.txt`.
+
+| # | Tiêu chí | v1 | B2 | Đạt |
+|---|---|---|---|---|
+| L1 | Bất biến thuỷ văn | 0 lỗi | 0 lỗi | ✓ |
+| L2 | Hồ móc câu ≤ 10% | 34/160 (21,2%) | 12/135 (8,9%) | ✓ |
+| L3 | Hồ dài tự nhiên ≥ 14 | 17 | 20 | ✓ |
+| L4 | Lưu vực ≥ 4 × diện tích | (không đo) | 135/135 | ✓ |
+| L5 | Tỉ lệ diện tích render 0,85–1,4 | 1,01–1,427 (cách gán cũ) | 1,026–1,127 (hồ gần nhất) | ✓ |
+| L6 | Hồ thung lũng dài ≥ 24 | 30 | 37 | ✓ (xem ghi chú 3) |
+| L7 | 0 ô hồ có ≤ 1 láng giềng | (không đo) | 0 | ✓ |
+
+**Khác với kế hoạch** (em ghi rõ để anh xét):
+
+1. **Mực nước dừng ở yên ngựa giữa hai lòng chảo** (thêm mới, tham số `lakeSaddleDepth` = 0,005). Chỉ cân bằng nước thì chưa đủ: phần lớn hồ móc câu có lưu vực rất lớn, nên nước vẫn lấp cả vùng trũng cong (L2 còn 17%). Quy tắc mới: nước dâng từ ô thấp nhất; khi vượt một yên ngựa sang lòng chảo khác sâu hơn 0,005 dưới yên ngựa và rộng ít nhất nửa `minLakeArea` (6 ô), hồ dừng ở yên ngựa. Lòng chảo kia thành đất trũng cùng mực `filled`. Chỗ lõm nhỏ trên đáy một lòng sông dài không bị tính, nên hồ dài vẫn giữ (L3 tăng từ 17 lên 20).
+   - Về vật lý: với lượng nước dư, hai lòng chảo sẽ nhập lại. Mô hình không có thể tích hay bốc hơi, nên đây là lựa chọn để mặt hồ là một lòng chảo đọc được, không phải mô phỏng.
+   - Em đã quét tham số và báo đủ đường cong, không chọn riêng điểm đẹp: độ sâu yên ngựa 0,005 / 0,01 / 0,02 → hồ móc câu 6,3% / 11,2% / 15,6% (với điều kiện mọi lòng chảo); kích thước lòng chảo tối thiểu 4 / 6 / 8 / 12 ô → 7,7% / 8,2% / 9,7% / 11,9%.
+   - Cái giá: diện tích mặt hồ tổng giảm 29% (9 858 → 7 013 ô) và số hồ giảm 160 → 135. Ví dụ tsvl-18 hồ 1 từ 183 ô (móc câu) còn 42 ô ở lòng chảo sâu nhất.
+2. **Bờ hồ:** bỏ nhánh rộng 1 ô như kế hoạch. Thêm một bước: ở một mũi nhọn 1 ô trên thân hồ rộng ≥ 2 ô, ô góc bên cạnh (cùng vùng trũng, cùng mực `filled`) được lấp trước khi cắt, trong ngân sách nước. Không có bước này, đầu nhọn của hồ dài bị cắt dần và L3 tụt còn 13.
+3. **L6:** bộ phân loại "thung lũng" (giữ nguyên từ Đợt 1) đòi độ dãn ≥ 1,8 hoặc bờ dốc, nên hầu hết hồ thung lũng đều dài theo định nghĩa. Đo theo luật cũ của `analyze.ts` (luật dùng cho số 30 của v1) thì B2 có 28 hồ thung lũng dài, vẫn ≥ 24.
+4. **Lấp lỗ ≤ 2 ô:** không làm. Sau B2 chỉ còn 3 đảo 1 ô trên 20 seed, đều là đất cao hơn mặt nước thật, nên em giữ làm đảo.
+5. **`outletType`:** `none` / `ocean` / `lake` / `regionBoundary`. Bỏ giá trị `river` trong kế hoạch vì mọi cửa ra đều chảy qua sông hoặc đổ thẳng; điều cần biết là nước đi về đâu. 20 seed: 53 hồ ra biển, 42 hồ đổ vào hồ khác, 40 hồ ra biên vùng.
+
+**tsvl-18 (A4).** Đo lại v1 bằng cách gán mới: hồ 3 có tỉ lệ 1,087 (cách cũ 1,427), hồ 2 là 1,095 (cách cũ 1,348). Vậy con số 1,427 là lỗi gán pixel, chồng lên một kết nối nước có thật mà lượt làm mờ nối liền trên ảnh. Ở B2, hồ 3 chỉ có lưu vực 44 ô nên không còn là mặt nước (cân bằng nước cho tối đa 11 ô). Test `tests/lakes.test.ts` ghi lại các số v1 này và kiểm trên cả 20 seed: hai hồ chỉ được liền nhau trên ảnh khi hồ này đổ vào hồ kia.
+
+**Độ sâu và loại hồ.** Độ sâu render giờ tính từ mặt nước thật (`surface` = ô hồ cao nhất), không từ mép tràn. Hồ nông hơn trước nên nhạt hơn: 47 hồ có độ sâu tối đa < 0,02 (đo cũ của v1: 14). Loại hồ do worldgen tính bằng cùng luật của `hydroView` nhưng trên `surface`: núi 42, thung lũng 37, đồng bằng 56 (v1 theo `hydroView`: 60 / 40 / 60).
+
 ## 3. B4 — Composition núi
 
 ### Hiện trạng v1

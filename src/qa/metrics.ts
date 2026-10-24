@@ -391,3 +391,75 @@ export function regionDensity(world: WorldData, manifest: Manifest): RegionDensi
   const coverage = Object.fromEntries(REGIONS.map((k) => [k, cells[k] ? cov[k] / cells[k] : 0])) as Record<Region, number>;
   return { cells, coverage, roles };
 }
+
+// ---------- Lake shape (Phase 2, B2: L2, L3, L6, L7) ----------
+
+type Pt = [number, number];
+
+function hullArea(pts: Pt[]): number {
+  const p = [...pts].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  if (p.length < 3) return 0;
+  const cross = (o: Pt, a: Pt, b: Pt) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lower: Pt[] = [], upper: Pt[] = [];
+  for (const q of p) { while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], q) <= 0) lower.pop(); lower.push(q); }
+  for (let i = p.length - 1; i >= 0; i--) { const q = p[i]; while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], q) <= 0) upper.pop(); upper.push(q); }
+  const h = lower.slice(0, -1).concat(upper.slice(0, -1));
+  let a = 0;
+  for (let i = 0; i < h.length; i++) { const j = (i + 1) % h.length; a += h[i][0] * h[j][1] - h[j][0] * h[i][1]; }
+  return Math.abs(a) / 2;
+}
+
+/** Shape of a set of unit cells: area, 4-edge perimeter, compactness, PCA elongation, solidity, axis angle. */
+export function cellShape(cells: Pt[]) {
+  const A = cells.length;
+  const set = new Set(cells.map(([x, y]) => x * 4096 + y));
+  let P = 0;
+  for (const [x, y] of cells) for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (!set.has((x + dx) * 4096 + (y + dy))) P++;
+  let mx = 0, my = 0;
+  for (const [x, y] of cells) { mx += x; my += y; }
+  mx /= A; my /= A;
+  let sxx = 0, syy = 0, sxy = 0;
+  for (const [x, y] of cells) { sxx += (x - mx) * (x - mx); syy += (y - my) * (y - my); sxy += (x - mx) * (y - my); }
+  sxx = sxx / A + 1 / 12; syy = syy / A + 1 / 12; sxy /= A;
+  const tr = sxx + syy, det = sxx * syy - sxy * sxy;
+  const l1 = tr / 2 + Math.sqrt(Math.max(0, tr * tr / 4 - det)), l2 = tr / 2 - Math.sqrt(Math.max(0, tr * tr / 4 - det));
+  const corners: Pt[] = [];
+  for (const [x, y] of cells) corners.push([x, y], [x + 1, y], [x, y + 1], [x + 1, y + 1]);
+  const hull = hullArea(corners);
+  return {
+    area: A, perimeter: P, compactness: (4 * Math.PI * A) / (P * P), elongation: Math.sqrt(l1 / Math.max(1e-9, l2)),
+    solidity: A / Math.max(1, hull), angle: (Math.atan2(2 * sxy, sxx - syy) / 2) * 180 / Math.PI, cx: mx + 0.5, cy: my + 0.5,
+    lengthAxis: 4 * Math.sqrt(l1), widthAxis: 4 * Math.sqrt(Math.max(0, l2)),
+  };
+}
+
+export interface LakeShape {
+  id: number;
+  kind: number;
+  area: number;
+  elongation: number;
+  solidity: number;
+  catchment: number;
+  /** Lake cells with at most one 4-neighbour in the same lake (one-cell arms). */
+  armCells: number;
+}
+
+export function lakeShapes(world: WorldData): LakeShape[] {
+  const { hydro } = world;
+  const n = world.config.size;
+  const cells: Pt[][] = hydro.lakes.map(() => []);
+  for (let c = 0; c < n * n; c++) if (hydro.lakeId[c]) cells[hydro.lakeId[c] - 1].push([c % n, (c - (c % n)) / n]);
+  return hydro.lakes.map((L, i) => {
+    const sh = cellShape(cells[i]);
+    let armCells = 0;
+    for (const [x, y] of cells[i]) {
+      let k = 0;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const xx = x + dx, yy = y + dy;
+        if (xx >= 0 && yy >= 0 && xx < n && yy < n && hydro.lakeId[yy * n + xx] === L.id) k++;
+      }
+      if (k <= 1) armCells++;
+    }
+    return { id: L.id, kind: L.kind, area: sh.area, elongation: sh.elongation, solidity: sh.solidity, catchment: L.catchment, armCells };
+  });
+}

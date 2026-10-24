@@ -47,7 +47,9 @@ describe('river geometry meets the water and the map edge', () => {
       return g.pts[0].w >= 0.8 * g.fullStartW ? null : `start width ${(g.pts[0].w / g.fullStartW).toFixed(2)} of full`;
     });
     expect(bad).toEqual([]);
-    expect(count).toBe(130 * 2);
+    // Guards against a vacuous pass: lake outflow paths over the 20 seeds, near and far LOD
+    // (worldgen 1.0.0: 130; 2.0.0 lakes: 113).
+    expect(count).toBe(113 * 2);
   });
 
   it('A8: rivers leaving the region run to the map edge without narrowing', () => {
