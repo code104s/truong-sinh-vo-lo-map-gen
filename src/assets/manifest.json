@@ -40,12 +40,22 @@
           "type": "procedural",
           "generator": "mountain.v1",
           "params": {
-            "peaks": [
-              2,
-              4
-            ],
             "steep": 1.25,
-            "cun": 1.0
+            "cun": 1.0,
+            "families": [
+              "range",
+              "cliff",
+              "range",
+              "pinnacle",
+              "range",
+              "cliff",
+              "flat",
+              "range",
+              "pinnacle",
+              "cliff",
+              "range",
+              "pinnacle"
+            ]
           }
         }
       }
@@ -75,12 +85,22 @@
           "type": "procedural",
           "generator": "mountain.v1",
           "params": {
-            "peaks": [
-              1,
-              3
-            ],
             "steep": 1.1,
-            "cun": 0.8
+            "cun": 0.8,
+            "families": [
+              "pinnacle",
+              "cliff",
+              "pinnacle",
+              "cliff",
+              "pinnacle",
+              "flat",
+              "cliff",
+              "pinnacle",
+              "cliff",
+              "pinnacle",
+              "cliff",
+              "pinnacle"
+            ]
           }
         }
       }
@@ -110,12 +130,22 @@
           "type": "procedural",
           "generator": "mountain.v1",
           "params": {
-            "peaks": [
-              1,
-              2
-            ],
             "steep": 0.85,
-            "cun": 0.55
+            "cun": 0.55,
+            "families": [
+              "range",
+              "hill",
+              "flat",
+              "range",
+              "cliff",
+              "hill",
+              "range",
+              "cliff",
+              "hill",
+              "range",
+              "cliff",
+              "range"
+            ]
           }
         }
       }
@@ -145,9 +175,19 @@
           "type": "procedural",
           "generator": "hill.v1",
           "params": {
-            "humps": [
-              1,
-              3
+            "families": [
+              "hill",
+              "hill",
+              "hill",
+              "hill",
+              "hill",
+              "hill",
+              "hill",
+              "hill",
+              "hill",
+              "hill",
+              "hill",
+              "hill"
             ]
           }
         }

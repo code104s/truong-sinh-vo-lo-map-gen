@@ -2,17 +2,25 @@
 // height and hillshade, packed into one RGB texture for the terrain shader. Not part of the
 // determinism contract (visual only), so trig and pow are allowed here.
 import type { WorldData } from '../worldgen/index';
+import { buildHydroView, LAKE_KIND_CODE, type HydroView } from './hydroView';
 
 export const FIELD_UPSAMPLE = 4;
 /** Cells represented by the full range of the SDF channel: d = (r - 0.5) * SDF_RANGE. */
 export const SDF_RANGE = 16;
 
+/** Lake depth (height units) that maps to the full depth channel. */
+export const LAKE_DEPTH_RANGE = 0.08;
+
 export interface FieldImage {
   width: number;
   height: number;
-  /** R: coarse signed distance, G: height, B: hillshade. */
+  /** R: lake depth (0..LAKE_DEPTH_RANGE), G: height, B: hillshade. */
   rgba: Uint8ClampedArray<ArrayBuffer>;
-  /** Signed distance as 16 bits (R high byte, G low byte): 8 bits alone band the coast at Z3. */
+  /**
+   * Signed distance as 16 bits (R high byte, G low byte): 8 bits alone band the coast at Z3.
+   * B: lake kind code × 64 of the nearest lake within 2 cells (0 on sea cells and far from lakes),
+   * read nearest.
+   */
   sdf: Uint8ClampedArray<ArrayBuffer>;
 }
 
@@ -23,12 +31,13 @@ function cubic(p0: number, p1: number, p2: number, p3: number, t: number): numbe
 function sampleBicubic(src: Float32Array, n: number, x: number, y: number): number {
   const x1 = Math.floor(x), y1 = Math.floor(y);
   const tx = x - x1, ty = y - y1;
-  const at = (xx: number, yy: number) => src[Math.min(n - 1, Math.max(0, yy)) * n + Math.min(n - 1, Math.max(0, xx))];
-  const rows: number[] = [];
-  for (let j = -1; j <= 2; j++) {
-    rows.push(cubic(at(x1 - 1, y1 + j), at(x1, y1 + j), at(x1 + 1, y1 + j), at(x1 + 2, y1 + j), tx));
-  }
-  return cubic(rows[0], rows[1], rows[2], rows[3], ty);
+  const c0 = Math.min(n - 1, Math.max(0, x1 - 1)), c1 = Math.min(n - 1, Math.max(0, x1));
+  const c2 = Math.min(n - 1, Math.max(0, x1 + 1)), c3 = Math.min(n - 1, Math.max(0, x1 + 2));
+  const row = (j: number) => {
+    const o = Math.min(n - 1, Math.max(0, y1 + j)) * n;
+    return cubic(src[o + c0], src[o + c1], src[o + c2], src[o + c3], tx);
+  };
+  return cubic(row(-1), row(0), row(1), row(2), ty);
 }
 
 function blur3(src: Float32Array, n: number): Float32Array {
@@ -98,20 +107,58 @@ function edt(mask: Uint8Array, w: number, h: number): Float32Array {
   return out;
 }
 
-export function buildFieldImage(world: WorldData): FieldImage {
+/**
+ * Nearest lake cell within `radius` cells (Chebyshev window, ties to the lower id): its lake id and
+ * squared distance (Infinity where there is none). Stamps outwards from the few lake cells.
+ */
+function nearLake(lakeId: Uint16Array, n: number, radius: number): { id: Uint16Array; d2: Float32Array } {
+  const id = new Uint16Array(n * n), d2 = new Float32Array(n * n).fill(Infinity);
+  for (let c = 0; c < n * n; c++) {
+    const L = lakeId[c];
+    if (!L) continue;
+    const x = c % n, y = (c - x) / n;
+    for (let dy = -radius; dy <= radius; dy++) {
+      const yy = y + dy;
+      if (yy < 0 || yy >= n) continue;
+      for (let dx = -radius; dx <= radius; dx++) {
+        const xx = x + dx;
+        if (xx < 0 || xx >= n) continue;
+        const b = yy * n + xx, d = dx * dx + dy * dy;
+        if (d < d2[b] || (d === d2[b] && L < id[b])) { id[b] = L; d2[b] = d; }
+      }
+    }
+  }
+  return { id, d2 };
+}
+
+export function buildFieldImage(world: WorldData, view: HydroView = buildHydroView(world)): FieldImage {
   const n = world.config.size;
   const U = FIELD_UPSAMPLE, N = n * U;
   const { hydro } = world;
 
-  const water = new Float32Array(n * n);
-  for (let i = 0; i < n * n; i++) water[i] = hydro.sea[i] || hydro.lakeId[i] ? 1 : 0;
-  // Two light blur passes round off cell-scale stair steps before the coast is thresholded.
-  const smoothWater = blur3(blur3(water, n), n);
+  // Sea and lakes are smoothed separately: two blur passes round the sea coast's cell steps, but
+  // would erase lake arms one or two cells wide, so lakes get one pass and a slightly lower
+  // threshold (the gain), which keeps narrow lakes at their true width.
+  const sea = new Float32Array(n * n), lake = new Float32Array(n * n), deep = new Float32Array(n * n);
+  for (let i = 0; i < n * n; i++) {
+    sea[i] = hydro.sea[i];
+    lake[i] = hydro.lakeId[i] ? 1 : 0;
+    deep[i] = Math.min(1, view.depth[i] / LAKE_DEPTH_RANGE);
+  }
+  const smoothSea = blur3(blur3(sea, n), n);
+  const smoothLake = blur3(lake, n);
+  const smoothWater = new Float32Array(n * n);
+  for (let i = 0; i < n * n; i++) smoothWater[i] = Math.max(smoothSea[i], Math.min(1, smoothLake[i] * 1.2));
+  const smoothDeep = blur3(deep, n);
+  // Lake kind reaches 2 cells around a lake; depth is only upsampled within 3 cells (the bicubic
+  // stencil reaches 2), elsewhere it is 0.
+  const near = nearLake(hydro.lakeId, n, 3);
 
   const wUp = new Float32Array(N * N);
   const wMask = new Uint8Array(N * N);
   const lMask = new Uint8Array(N * N);
   const hUp = new Float32Array(N * N);
+  const dUp = new Float32Array(N * N);
   for (let y = 0; y < N; y++) {
     for (let x = 0; x < N; x++) {
       // Sample at the centre of the fine pixel, in cell coordinates relative to cell centres.
@@ -122,6 +169,7 @@ export function buildFieldImage(world: WorldData): FieldImage {
       if (wv >= 0.5) wMask[i] = 1;
       else lMask[i] = 1;
       hUp[i] = sampleBicubic(hydro.height, n, cx, cy);
+      if (near.id[Math.min(n - 1, Math.floor(y / U)) * n + Math.min(n - 1, Math.floor(x / U))]) dUp[i] = sampleBicubic(smoothDeep, n, cx, cy);
     }
   }
   const toWater = edt(wMask, N, N);
@@ -155,10 +203,13 @@ export function buildFieldImage(world: WorldData): FieldImage {
       const dzdy = (hUp[yd * N + x] - hUp[yu * N + x]) * n * 2.2;
       const len = Math.sqrt(dzdx * dzdx + dzdy * dzdy + 1);
       const shade = (-dzdx * -0.62 + -dzdy * -0.62 + 0.48) / len;
-      rgba[i * 4] = Math.round(Math.min(1, Math.max(0, r)) * 255);
+      rgba[i * 4] = Math.round(Math.min(1, Math.max(0, dUp[i])) * 255);
       const q = Math.round(Math.min(1, Math.max(0, r)) * 65535);
       sdf[i * 4] = q >> 8;
       sdf[i * 4 + 1] = q & 255;
+      const c = Math.min(n - 1, Math.floor(y / U)) * n + Math.min(n - 1, Math.floor(x / U));
+      const lk = hydro.sea[c] || near.d2[c] > 8 ? 0 : near.id[c];
+      sdf[i * 4 + 2] = lk ? LAKE_KIND_CODE[view.lakes[lk - 1].kind] * 64 : 0;
       sdf[i * 4 + 3] = 255;
       rgba[i * 4 + 1] = Math.round(Math.min(1, Math.max(0, hUp[i])) * 255);
       rgba[i * 4 + 2] = Math.round(Math.min(1, Math.max(0, 0.5 + 0.5 * shade)) * 255);
@@ -166,4 +217,20 @@ export function buildFieldImage(world: WorldData): FieldImage {
     }
   }
   return { width: N, height: N, rgba, sdf };
+}
+
+/**
+ * Signed distance to water in cells at a point in cell coordinates, decoded from the 16-bit SDF
+ * and interpolated exactly as the terrain shader does before its domain warp (up to ±0.35 cells).
+ */
+export function sampleSdf(field: FieldImage, x: number, y: number): number {
+  const N = field.width, U = FIELD_UPSAMPLE;
+  const tx = x * U - 0.5, ty = y * U - 0.5;
+  const ix = Math.floor(tx), iy = Math.floor(ty), fx = tx - ix, fy = ty - iy;
+  const at = (px: number, py: number) => {
+    const i = (Math.min(N - 1, Math.max(0, py)) * N + Math.min(N - 1, Math.max(0, px))) * 4;
+    return ((field.sdf[i] * 256 + field.sdf[i + 1]) / 65535 - 0.5) * SDF_RANGE;
+  };
+  const a = at(ix, iy), b = at(ix + 1, iy), c = at(ix, iy + 1), d = at(ix + 1, iy + 1);
+  return (a * (1 - fx) + b * fx) * (1 - fy) + (c * (1 - fx) + d * fx) * fy;
 }

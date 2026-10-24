@@ -1,7 +1,7 @@
 // Shows every procedural stamp variant on paper, for reviewing placeholder art in isolation.
 import manifestJson from '../assets/manifest.json';
 import type { Manifest } from '../assets/manifestTypes';
-import { paintProceduralArt } from '../render/stampArt';
+import { familyOf, paintProceduralArt } from '../render/stampArt';
 
 const manifest = manifestJson as unknown as Manifest;
 const scale = Number(new URLSearchParams(location.search).get('scale') ?? '0.5');
@@ -13,7 +13,7 @@ let width = 0, height = pad;
 const rows: { key: string; list: HTMLCanvasElement[]; h: number }[] = [];
 for (const [key, list] of art) {
   const rowW = list.reduce((a, c) => a + c.width * scale + pad, pad);
-  const rowH = Math.max(...list.map((c) => c.height * scale)) + 22;
+  const rowH = Math.max(...list.map((c) => c.height * scale)) + 36;
   rows.push({ key, list, h: rowH });
   width = Math.max(width, rowW);
   height += rowH + pad;
@@ -30,18 +30,24 @@ for (const r of rows) {
   ctx.fillStyle = '#3a362e';
   ctx.fillText(`${r.key} · ${r.list.length} variants`, pad, y + 12);
   let x = pad;
-  const base = y + r.h;
-  for (const c of r.list) {
+  const base = y + r.h - 14;
+  const entry = manifest.assets[r.key];
+  const gen = entry.visual.source.type === 'procedural' ? entry.visual.source.generator : '';
+  r.list.forEach((c, v) => {
     ctx.drawImage(c, x, base - c.height * scale, c.width * scale, c.height * scale);
+    ctx.fillStyle = '#6a6458';
+    ctx.fillText(`${v} ${familyOf(entry, v, gen)}`, x, base + 12);
     x += c.width * scale + pad;
-  }
+  });
   y += r.h + pad;
 }
 document.getElementById('root')!.appendChild(out);
 document.body.dataset.ready = '1';
 
 // QA hook: silhouette descriptors per variant, read by scripts/art-metrics.mjs.
-(window as unknown as { __art: unknown }).__art = Object.fromEntries([...art].map(([key, list]) => [key, list.map((c) => {
+(window as unknown as { __art: unknown }).__art = Object.fromEntries([...art].map(([key, list]) => [key, list.map((c, v) => {
+  const entry = manifest.assets[key];
+  const family = familyOf(entry, v, entry.visual.source.type === 'procedural' ? entry.visual.source.generator : '');
   const { data, width: w, height: h } = c.getContext('2d')!.getImageData(0, 0, c.width, c.height);
   // Silhouette = pixels with alpha ≥ 0.25; the column top gives the profile.
   const top = new Array<number>(w).fill(-1);
@@ -69,5 +75,5 @@ document.body.dataset.ready = '1';
   }
   let sym = 0, tot = 0;
   for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) { const a = mask[j * N + i], b = mask[j * N + (N - 1 - i)]; if (a || b) { tot++; if (a && b) sym++; } }
-  return { aspect: bw / bh, topFlat: near, peaks, symmetry: sym / Math.max(1, tot), mask };
+  return { family, aspect: bw / bh, topFlat: near, peaks, symmetry: sym / Math.max(1, tot), height: bh / h, mask };
 })]));

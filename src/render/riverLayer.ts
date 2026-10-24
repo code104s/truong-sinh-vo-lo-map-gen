@@ -1,120 +1,117 @@
 // Rivers as variable-width ink ribbons: a pale indigo wash between two thin bank lines that
-// widen downstream (width ~ sqrt(flow)). Logic stays on the grid; smoothing is visual only.
+// widen downstream (width ~ sqrt(flow)), darker for larger rivers. Geometry (riverGeometry.ts) is
+// pure and tested in Node; this file only draws it.
 import { Graphics } from 'pixi.js';
 import type { Manifest } from '../assets/manifestTypes';
 import type { WorldData } from '../worldgen/index';
-import { createSimplex2D } from '../core/noise';
-import { rngFor } from '../core/rng';
 import { CELL_PX, hexToNumber } from './constants';
+import type { HydroView } from './hydroView';
+import { brushRuns, gapThreshold, riverGeometry, riverNoise, type BrushRun, type RiverGeom } from './riverGeometry';
 
-type Pt = { x: number; y: number; w: number };
+/** Points this far inside water (cells) get a faint wash and no banks, so the river fades into the lake or sea. */
+const WATER_SD = -0.1;
 
-function chaikin(pts: Pt[], rounds: number): Pt[] {
-  let p = pts;
-  for (let r = 0; r < rounds; r++) {
-    if (p.length < 3) return p;
-    const out: Pt[] = [p[0]];
-    for (let i = 0; i < p.length - 1; i++) {
-      const a = p[i], b = p[i + 1];
-      out.push({ x: a.x * 0.75 + b.x * 0.25, y: a.y * 0.75 + b.y * 0.25, w: a.w * 0.75 + b.w * 0.25 });
-      out.push({ x: a.x * 0.25 + b.x * 0.75, y: a.y * 0.25 + b.y * 0.75, w: a.w * 0.25 + b.w * 0.75 });
-    }
-    out.push(p[p.length - 1]);
-    p = out;
+/** Index ranges [from, to] of consecutive points where keep(i) holds, sharing an end point. */
+function runsWhere(n: number, keep: (i: number) => boolean): Array<[number, number]> {
+  const out: Array<[number, number]> = [];
+  let s = -1;
+  for (let i = 0; i < n; i++) {
+    if (keep(i)) { if (s < 0) s = i > 0 ? i - 1 : i; }
+    else if (s >= 0) { out.push([s, i]); s = -1; }
   }
-  return p;
+  if (s >= 0) out.push([s, n - 1]);
+  return out.filter(([a, b]) => b > a);
+}
+
+function ribbonPoly(r: RiverGeom, from: number, to: number): number[] {
+  const left: number[] = [], right: number[] = [];
+  const p = r.pts;
+  for (let i = from; i <= to; i++) {
+    const a = p[Math.max(0, i - 1)], b = p[Math.min(p.length - 1, i + 1)];
+    let nx = -(b.y - a.y), ny = b.x - a.x;
+    const len = Math.hypot(nx, ny) || 1;
+    nx /= len; ny /= len;
+    const hw = p[i].w / 2;
+    left.push(p[i].x + nx * hw, p[i].y + ny * hw);
+    right.push(p[i].x - nx * hw, p[i].y - ny * hw);
+  }
+  const poly = [...left];
+  for (let i = right.length - 2; i >= 0; i -= 2) poly.push(right[i], right[i + 1]);
+  return poly;
+}
+
+function bankLine(r: RiverGeom, side: 1 | -1): number[] {
+  const p = r.pts, xy: number[] = [];
+  for (let i = 0; i < p.length; i++) {
+    const a = p[Math.max(0, i - 1)], b = p[Math.min(p.length - 1, i + 1)];
+    let nx = -(b.y - a.y), ny = b.x - a.x;
+    const len = Math.hypot(nx, ny) || 1;
+    nx /= len; ny /= len;
+    xy.push(p[i].x + side * nx * p[i].w / 2, p[i].y + side * ny * p[i].w / 2);
+  }
+  return xy;
+}
+
+/** Butt caps: round caps of neighbouring runs overlap and leave dark dots along the line. */
+function stroke(g: Graphics, run: BrushRun, color: number): void {
+  g.poly(run.xy, false).stroke({ width: run.width, color, alpha: run.alpha, cap: 'butt', join: 'round' });
 }
 
 /**
  * @param widthScale widens ribbons and lines for the overview LOD, where true-scale rivers would
  *                   be thinner than a pixel and the river network would vanish from the map frame.
  */
-export function createRiverLayer(world: WorldData, manifest: Manifest, widthScale = 1): Graphics {
-  const n = world.config.size;
-  const { hydro } = world;
+export function createRiverLayer(world: WorldData, manifest: Manifest, view: HydroView, sdAt: (x: number, y: number) => number, widthScale = 1): Graphics {
   const g = new Graphics();
   g.label = 'rivers';
   const wash = hexToNumber(manifest.palette.indigo);
   const ink = hexToNumber(manifest.palette.ink[2]);
-  const thr = hydro.riverThreshold;
-  // Visual-only meander so D8's straight runs read as brushed water, not survey lines.
-  const noise = createSimplex2D(rngFor(world.seed, 'render:rivers'));
+  const inkDark = hexToNumber(manifest.palette.ink[1]);
+  const noise = riverNoise(world);
+  // The overview LOD draws unbroken lines: dry-brush gaps at that scale read as broken rivers.
+  const gap = (bias: number) => gapThreshold(widthScale, bias);
 
-  const paths = [...hydro.rivers].sort((a, b) => hydro.acc[b.cells[b.cells.length - 1]] - hydro.acc[a.cells[a.cells.length - 1]]);
-  for (const r of paths) {
-    const raw: Pt[] = r.cells.map((c) => ({
-      x: ((c % n) + 0.5) * CELL_PX,
-      y: (Math.floor(c / n) + 0.5) * CELL_PX,
-      w: widthScale * CELL_PX * Math.min(0.34, 0.035 + 0.032 * Math.sqrt(hydro.acc[c] / thr)),
-    }));
-    raw[0].w *= 0.2;
-    // Densify, then push interior points sideways by smooth noise.
-    const dense: Pt[] = [];
-    for (let i = 0; i < raw.length - 1; i++) {
-      const a = raw[i], b = raw[i + 1];
-      for (let k = 0; k < 3; k++) {
-        const t = k / 3;
-        dense.push({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, w: a.w + (b.w - a.w) * t });
-      }
-    }
-    dense.push(raw[raw.length - 1]);
-    for (let i = 1; i < dense.length - 1; i++) {
-      const a = dense[i - 1], b = dense[i + 1];
-      let nx = -(b.y - a.y), ny = b.x - a.x;
-      const len = Math.hypot(nx, ny) || 1;
-      nx /= len; ny /= len;
-      const m = noise(dense[i].x / CELL_PX * 0.35, dense[i].y / CELL_PX * 0.35) * CELL_PX * 0.32;
-      dense[i].x += nx * m;
-      dense[i].y += ny * m;
-    }
-    const pts = chaikin(dense, 2);
-    if (pts.length < 2) continue;
-    const left: number[] = [], right: number[] = [], centre: number[] = [];
-    for (let i = 0; i < pts.length; i++) {
-      const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)];
-      let nx = -(b.y - a.y), ny = b.x - a.x;
-      const len = Math.hypot(nx, ny) || 1;
-      nx /= len; ny /= len;
-      const hw = pts[i].w / 2;
-      left.push(pts[i].x + nx * hw, pts[i].y + ny * hw);
-      right.push(pts[i].x - nx * hw, pts[i].y - ny * hw);
-      centre.push(pts[i].x, pts[i].y);
-    }
-    const maxW = Math.max(...pts.map((p) => p.w));
-    if (maxW < CELL_PX * 0.09 * widthScale) {
-      // Stream: one brush line that swells and thins and fades towards its source.
-      brush(g, centre, noise, ink, Math.max(0.8, maxW * 0.9), 0.5, 0.25);
+  const geoms = riverGeometry(world, view, sdAt, widthScale).sort((a, b) => b.rank - a.rank);
+  for (const r of geoms) {
+    const n = r.pts.length;
+    const fade = r.pts.map((p) => p.a);
+    const xy: number[] = [];
+    for (const p of r.pts) xy.push(p.x, p.y);
+    if (r.kind === 'stream') {
+      // Stream: one unbroken brush line that swells and thins, faint at its headwater.
+      const maxW = Math.max(...r.pts.map((p) => p.w));
+      const tone = r.pts.map((p) => p.a * (0.2 + 0.3 * p.t));
+      for (const run of brushRuns(xy, tone, noise, Math.max(0.8, maxW * 0.85), 1, -Infinity)) stroke(g, run, ink);
       continue;
     }
-    const poly: number[] = [...left];
-    for (let i = right.length - 2; i >= 0; i -= 2) poly.push(right[i], right[i + 1]);
-    g.poly(poly).fill({ color: wash, alpha: 0.42 });
-    // Round the mouth so a tributary blends into the river or lake it joins.
-    const end = pts[pts.length - 1];
-    g.circle(end.x, end.y, end.w / 2).fill({ color: wash, alpha: 0.42 });
-    // Banks drawn with a loaded-then-dry brush: the shaded (south/east) bank stays firmer.
-    const bankW = Math.max(0.8, CELL_PX * 0.026 * widthScale);
-    brush(g, left, noise, ink, bankW, 0.5, 0.1);
-    brush(g, right, noise, ink, bankW * 0.8, 0.32, 0.45);
+    // Headwater: a fading centre line until the ribbon reaches full strength.
+    for (const [a, b] of runsWhere(n, (i) => r.pts[i].a < 0.999)) {
+      for (const run of brushRuns(xy.slice(a * 2, b * 2 + 2), fade.slice(a, b + 1), noise, r.pts[b].w * 0.45, 0.3, -Infinity)) stroke(g, run, ink);
+    }
+    // Wash: darker where the flow is larger (four tone bands along the river); full strength over
+    // land and just past the shore, faint further into lake or sea.
+    const band = r.pts.map((p) => Math.round(p.t * 4) / 4);
+    const full = (i: number) => r.pts[i].a >= 0.999;
+    for (let a = 0; a < n - 1;) {
+      let b = a + 1;
+      const inWater = r.sd[a] <= WATER_SD;
+      while (b < n - 1 && band[b] === band[a] && (r.sd[b] <= WATER_SD) === inWater && full(b) === full(a)) b++;
+      if (full(a)) {
+        const washA = (0.34 + 0.42 * band[a]) * (inWater ? 0.35 : 1);
+        g.poly(ribbonPoly(r, a, b)).fill({ color: wash, alpha: washA });
+      }
+      a = b;
+    }
+    // Banks with a loaded-then-dry brush, only on land; the shaded (south/east) bank stays firmer.
+    const bankW = Math.max(0.8, CELL_PX * 0.026 * widthScale) * (0.8 + 0.6 * r.rank);
+    const bankInk = r.rank > 0.6 ? inkDark : ink;
+    for (const [side, w, a0, a1, bias] of [[1, 1, 0.3, 0.42, 0.1], [-1, 0.8, 0.2, 0.36, 0.45]] as const) {
+      const bank = bankLine(r, side);
+      const tone = r.pts.map((p) => p.a * (a0 + a1 * p.t));
+      for (const [a, b] of runsWhere(n, (i) => full(i) && r.sd[i] > -0.1)) {
+        for (const run of brushRuns(bank.slice(a * 2, b * 2 + 2), tone.slice(a, b + 1), noise, bankW * w, 1, gap(bias))) stroke(g, run, bankInk);
+      }
+    }
   }
   return g;
-}
-
-/**
- * Strokes a polyline in short runs whose width and opacity follow smooth noise, with dry-brush
- * gaps, and fades in over the first fifth (the upstream end).
- */
-function brush(g: Graphics, xy: number[], noise: (x: number, y: number) => number, color: number, width: number, alpha: number, gapBias: number): void {
-  const n = xy.length / 2;
-  const RUN = 4;
-  for (let i = 0; i < n - 1; i += RUN) {
-    const j = Math.min(n - 1, i + RUN);
-    const mx = xy[i * 2] / CELL_PX, my = xy[i * 2 + 1] / CELL_PX;
-    const pressure = 0.5 + 0.5 * noise(mx * 0.9 + 3.1, my * 0.9);
-    if (noise(mx * 1.7, my * 1.7 + 9.3) < -0.75 + gapBias) continue;
-    const fadeIn = Math.min(1, (i / n) * 5 + 0.25);
-    const seg: number[] = [];
-    for (let k = i; k <= j; k++) seg.push(xy[k * 2], xy[k * 2 + 1]);
-    g.poly(seg, false).stroke({ width: width * (0.6 + 0.8 * pressure), color, alpha: alpha * (0.55 + 0.45 * pressure) * fadeIn, cap: 'round', join: 'round' });
-  }
 }

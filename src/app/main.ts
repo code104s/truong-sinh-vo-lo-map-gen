@@ -5,7 +5,8 @@ import { logicOf, type Manifest } from '../assets/manifestTypes';
 import { validateManifest } from '../assets/validate';
 import { Camera } from '../render/camera';
 import { CELL_PX, hexToNumber } from '../render/constants';
-import { buildFieldImage } from '../render/fields';
+import { buildFieldImage, sampleSdf } from '../render/fields';
+import { buildHydroView } from '../render/hydroView';
 import { createMistLayer } from '../render/mistLayer';
 import { createOverlay } from '../render/overlay';
 import { createRiverLayer } from '../render/riverLayer';
@@ -109,11 +110,14 @@ async function main(): Promise<void> {
     // Layer 1: paper, terrain, water (+ rivers drawn as vectors on top of the shader).
     const layer1 = new Container();
     layer1.label = 'layer1-ground';
-    const terrain = createTerrainLayer(buildFieldImage(world), size, manifest);
+    const hydroView = buildHydroView(world);
+    const field = buildFieldImage(world, hydroView);
+    const terrain = createTerrainLayer(field, size, manifest);
     layer1.addChild(terrain.mesh);
     // Rivers in two LODs: true scale from zoom 0.5 up, widened below so the network still frames Z1.
-    const rivers = createRiverLayer(world, manifest);
-    const riversFar = createRiverLayer(world, manifest, 2.4);
+    const sdAt = (x: number, y: number) => sampleSdf(field, x, y);
+    const rivers = createRiverLayer(world, manifest, hydroView, sdAt);
+    const riversFar = createRiverLayer(world, manifest, hydroView, sdAt, 2.4);
     layer1.addChild(rivers, riversFar);
 
     // Layer 2: mountains and hills.

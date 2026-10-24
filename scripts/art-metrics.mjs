@@ -18,8 +18,20 @@ const pairs = [];
 for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) if (all[i].key !== 'hill' && all[j].key !== 'hill') pairs.push(iou(all[i].mask, all[j].mask));
 pairs.sort((a, b) => a - b);
 const q = (a, p) => a[Math.min(a.length - 1, Math.floor(p * a.length))];
-const rows = all.map(({ mask, ...r }) => ({ ...r, aspect: +r.aspect.toFixed(2), topFlat: +r.topFlat.toFixed(3), symmetry: +r.symmetry.toFixed(3) }));
-const summary = { mountainPairIoU: { p10: +q(pairs, 0.1).toFixed(3), p50: +q(pairs, 0.5).toFixed(3), p90: +q(pairs, 0.9).toFixed(3) }, rows };
+// A10 rules, fixed in docs/worldgen/phase2/00-baseline.md before the art was changed. "Low" for a
+// hill = silhouette at most half the height of its art frame.
+const RULES = {
+  range: (r) => r.aspect >= 1.8 && r.peaks >= 3,
+  pinnacle: (r) => r.aspect <= 0.85 && r.peaks === 1,
+  flat: (r) => r.topFlat >= 0.35,
+  cliff: (r) => r.symmetry <= 0.6,
+  hill: (r) => r.aspect >= 2.2 && r.height <= 0.5,
+};
+const rows = all.map(({ mask, ...r }) => ({ ...r, aspect: +r.aspect.toFixed(2), topFlat: +r.topFlat.toFixed(3), symmetry: +r.symmetry.toFixed(3), height: +(r.height ?? 0).toFixed(3), ok: r.family ? RULES[r.family](r) : null }));
+const fam = {};
+for (const r of rows) if (r.family) { fam[r.family] ??= { n: 0, ok: 0 }; fam[r.family].n++; if (r.ok) fam[r.family].ok++; }
+const okShare = rows.filter((r) => r.ok).length / rows.length;
+const summary = { mountainPairIoU: { p10: +q(pairs, 0.1).toFixed(3), p50: +q(pairs, 0.5).toFixed(3), p90: +q(pairs, 0.9).toFixed(3) }, familyMatch: { share: +okShare.toFixed(3), byFamily: fam }, rows };
 writeFileSync(out, JSON.stringify(summary, null, 1));
-console.log(JSON.stringify(summary.mountainPairIoU));
-for (const r of rows) console.log(r.key.padEnd(14), String(r.variant).padStart(2), 'aspect', r.aspect, 'flat', r.topFlat, 'peaks', r.peaks, 'sym', r.symmetry);
+console.log(JSON.stringify(summary.mountainPairIoU), JSON.stringify(summary.familyMatch));
+for (const r of rows) console.log(r.key.padEnd(14), String(r.variant).padStart(2), (r.family ?? '').padEnd(9), r.ok ? 'ok ' : 'NO ', 'aspect', r.aspect, 'flat', r.topFlat, 'peaks', r.peaks, 'sym', r.symmetry, 'h', r.height);

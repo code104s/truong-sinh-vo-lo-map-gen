@@ -21,11 +21,6 @@ function rgba(hex: string, a: number): string {
   return `rgba(${(v >> 16) & 255},${(v >> 8) & 255},${v & 255},${a})`;
 }
 
-function range(params: Record<string, unknown>, key: string, fallback: [number, number]): [number, number] {
-  const v = params[key];
-  return Array.isArray(v) && v.length === 2 ? [Number(v[0]), Number(v[1])] : fallback;
-}
-
 interface Profile {
   xs: number[];
   ys: number[];
@@ -33,36 +28,66 @@ interface Profile {
   tops: { x: number; y: number; w: number }[];
 }
 
-/**
- * Silhouette of 1..k peaks above the ground line `gy`. Each peak is a bell (1 - d²)^steep: rounded
- * crown, flaring foot, the classic shan-shui massif. Rock noise roughens the upper outline.
- */
-function makeProfile(rng: Rng, noise: Noise2D, W: number, gy: number, maxH: number, peaks: number, steep: number, rough: number, x0f = 0.03, x1f = 0.97): Profile {
-  const x0 = W * x0f, x1 = W * x1f;
+/** Silhouette family of a variant (manifest visual.source.params.families, one per variant). */
+export type Family = 'range' | 'pinnacle' | 'flat' | 'cliff' | 'hill';
+export const FAMILIES: readonly Family[] = ['range', 'pinnacle', 'flat', 'cliff', 'hill'];
+
+type Span = [number, number];
+
+/** How one silhouette is built: peaks, their shape (1 - |d|^a)^b, spacing and roughness. */
+interface ProfileSpec {
+  peaks: number;
+  /** Shape exponents: a = 2, b ~ 1 is the rounded shan-shui bell; large a flattens the crown. */
+  a: number;
+  b: number;
+  mainX: Span;
+  mainW: Span;
+  sideX: Span;
+  sideW: Span;
+  sideH: Span;
+  /** Flank asymmetry: half-width left = w·skew, right = w/skew. */
+  skew: Span;
+  rough: number;
+  x0f: number;
+  x1f: number;
+  /** Spread all peaks over evenly spaced slots across sideX (main peak in the middle slot). */
+  even?: boolean;
+  /** Height of a continuous ridge the peaks rise from (saddles never drop to the ground). */
+  ridge?: Span;
+}
+
+/** Silhouette of 1..k peaks above the ground line `gy`, roughened by rock noise on the upper outline. */
+function makeProfile(rng: Rng, noise: Noise2D, W: number, gy: number, maxH: number, sp: ProfileSpec): Profile {
+  const x0 = W * sp.x0f, x1 = W * sp.x1f;
   const ps: { x: number; h: number; w: number; skew: number }[] = [];
-  for (let i = 0; i < peaks; i++) {
+  const mid = Math.floor(sp.peaks / 2);
+  for (let i = 0; i < sp.peaks; i++) {
     const main = i === 0;
+    // Even slots: the main peak takes the middle one, side peaks fill the rest in order.
+    const slot = main ? mid : i <= mid ? i - 1 : i;
+    const step = (sp.sideX[1] - sp.sideX[0]) / Math.max(1, sp.peaks - 1);
+    const evenX = sp.sideX[0] + step * slot + rng.range(-0.2, 0.2) * step;
     ps.push({
-      x: main ? rng.range(0.38, 0.62) : rng.range(0.16, 0.84),
-      h: main ? 1 : rng.range(0.45, 0.8),
-      w: main ? rng.range(0.42, 0.55) : rng.range(0.22, 0.38),
-      // Asymmetric flanks: one side steep cliff, the other a long slope.
-      skew: rng.range(0.7, 1.35),
+      x: sp.even && sp.peaks > 1 ? evenX : main ? rng.range(...sp.mainX) : rng.range(...sp.sideX),
+      h: main ? 1 : rng.range(...sp.sideH),
+      w: main ? rng.range(...sp.mainW) : rng.range(...sp.sideW),
+      skew: rng.range(...sp.skew),
     });
   }
+  const ridge = sp.ridge ? rng.range(...sp.ridge) : 0;
   const N = 120;
   const xs: number[] = [], ys: number[] = [];
   for (let k = 0; k <= N; k++) {
     const t = k / N;
     const x = x0 + (x1 - x0) * t;
-    let h = 0;
+    let h = ridge * (1 - Math.pow(Math.abs(2 * t - 1), 4));
     for (const p of ps) {
       const d = t < p.x ? (t - p.x) / (p.w * p.skew) : (t - p.x) / (p.w / p.skew);
       if (d <= -1 || d >= 1) continue;
-      h = Math.max(h, p.h * Math.pow(1 - d * d, steep));
+      h = Math.max(h, p.h * Math.pow(1 - Math.pow(Math.abs(d), sp.a), sp.b));
     }
     const edgeFade = Math.min(1, Math.min(t, 1 - t) * 10);
-    h += (noise(t * 7, 0.3) * 0.05 + noise(t * 23, 4.1) * 0.02) * rough * edgeFade * Math.min(1, h * 3);
+    h += (noise(t * 7, 0.3) * 0.05 + noise(t * 23, 4.1) * 0.02) * sp.rough * edgeFade * Math.min(1, h * 3);
     h = Math.max(0, h) * edgeFade;
     xs.push(x);
     ys.push(gy - h * maxH);
@@ -120,9 +145,11 @@ function brushOutline(ctx: CanvasRenderingContext2D, pr: Profile, noise: Noise2D
 
 /** Paints one massif (body, washes, texture strokes) clipped to its silhouette. */
 function paintMass(ctx: CanvasRenderingContext2D, pr: Profile, rng: Rng, noise: Noise2D, pal: Ink, gy: number, s: number, opts: {
-  far: boolean; hill: boolean; cun: number; W: number;
+  far: boolean; hill: boolean; cun: number; W: number; axe?: boolean;
 }): void {
   const { far, hill, cun, W } = opts;
+  // Axe-cut strokes (phủ phách thuân) on cliffs and mesas: short, steep and broad.
+  const axe = opts.axe ?? false;
   const topY = Math.min(...pr.tops.map((p) => p.y));
   const massH = Math.max(1, gy - topY);
   ctx.save();
@@ -189,11 +216,12 @@ function paintMass(ctx: CanvasRenderingContext2D, pr: Profile, rng: Rng, noise: 
     // Slope direction from the local profile gradient.
     const dy = topAt(pr, x + 2 * dir) - crest;
     const slope = Math.min(2.5, Math.max(0.25, Math.abs(dy) / 2));
-    const len = (hill ? 5 : 8 + 16 * rng.next()) * s * (1 - depth * 0.55);
-    const vx = dir / Math.sqrt(1 + slope * slope) * 0.6, vy = slope / Math.sqrt(1 + slope * slope);
+    const len = (hill ? 5 : axe ? 6 + 9 * rng.next() : 8 + 16 * rng.next()) * s * (1 - depth * 0.55);
+    const sl = axe ? Math.max(2.2, slope) : slope;
+    const vx = dir / Math.sqrt(1 + sl * sl) * 0.6, vy = sl / Math.sqrt(1 + sl * sl);
     const ink = rng.next() < 0.35 ? pal.ink[1] : pal.ink[2];
     ctx.strokeStyle = rgba(ink, (far ? 0.18 : 0.3) * (0.5 + rng.next()) * (1 - depth * 0.75) * (shaded ? 1 : 0.55));
-    ctx.lineWidth = (0.6 + 1.0 * rng.next()) * s;
+    ctx.lineWidth = (axe ? 1.2 + 1.6 * rng.next() : 0.6 + 1.0 * rng.next()) * s;
     ctx.beginPath();
     ctx.moveTo(x, y);
     const bend = noise(x * 0.04, y * 0.04) * 3 * s;
@@ -224,6 +252,75 @@ function paintMass(ctx: CanvasRenderingContext2D, pr: Profile, rng: Rng, noise: 
   ctx.restore();
 }
 
+interface FamilySpec {
+  main: ProfileSpec & { peaks: number };
+  peaks: Span;
+  /** Main silhouette height as a share of the ground line height. */
+  height: Span;
+  /** Back range (far ink layer) or none. */
+  back: null | { spec: Omit<ProfileSpec, 'peaks'>; peaks: Span; height: Span };
+  cun: number;
+  axe: boolean;
+  outline: number;
+  /** Share of the height over which the outline dissolves into the foot mist. */
+  foot: Span;
+  moss: Span;
+}
+
+const BELL = { a: 2, b: 1, skew: [0.75, 1.3] as Span, rough: 1 };
+
+function familySpec(f: Family, steep: number): FamilySpec {
+  switch (f) {
+    case 'range': // long, low, many-peaked ridge (trùng điệp)
+      return {
+        main: { ...BELL, peaks: 0, b: 0.9 + 0.2 * steep, mainX: [0.35, 0.65], mainW: [0.2, 0.28], sideX: [0.18, 0.82], sideW: [0.14, 0.22], sideH: [0.7, 0.95], x0f: 0.02, x1f: 0.98, even: true, ridge: [0.45, 0.55] },
+        peaks: [4, 6], height: [0.36, 0.52],
+        back: { spec: { ...BELL, b: 0.9, rough: 0.8, mainX: [0.3, 0.7], mainW: [0.25, 0.4], sideX: [0.1, 0.9], sideW: [0.15, 0.3], sideH: [0.6, 0.9], x0f: 0.01, x1f: 0.99 }, peaks: [2, 4], height: [0.75, 0.95] },
+        cun: 0.8, axe: false, outline: 1, foot: [0.25, 0.4], moss: [4, 10],
+      };
+    case 'pinnacle': // one tall pointed peak, steep sides, small satellites below a third of its height
+      return {
+        main: { a: 1.7, b: 1.0, skew: [0.85, 1.18], rough: 0.7, peaks: 0, mainX: [0.46, 0.54], mainW: [0.3, 0.38], sideX: [0.25, 0.75], sideW: [0.1, 0.15], sideH: [0.2, 0.32], x0f: 0.1, x1f: 0.9 },
+        peaks: [1, 3], height: [0.9, 0.98],
+        back: { spec: { a: 1.8, b: 1.0, skew: [0.85, 1.18], rough: 0.6, mainX: [0.35, 0.65], mainW: [0.2, 0.28], sideX: [0.3, 0.7], sideW: [0.12, 0.18], sideH: [0.6, 0.9], x0f: 0.15, x1f: 0.85 }, peaks: [1, 2], height: [0.26, 0.33] },
+        cun: 0.9, axe: false, outline: 1.15, foot: [0.3, 0.42], moss: [3, 7],
+      };
+    case 'flat': // mesa or plateau: broad flat crown, steep walls
+      return {
+        main: { a: 6, b: 0.45, skew: [0.85, 1.18], rough: 0.3, peaks: 0, mainX: [0.42, 0.58], mainW: [0.36, 0.44], sideX: [0.2, 0.8], sideW: [0.1, 0.16], sideH: [0.45, 0.7], x0f: 0.04, x1f: 0.96 },
+        peaks: [1, 2], height: [0.42, 0.62],
+        back: { spec: { a: 4, b: 0.6, skew: [0.85, 1.18], rough: 0.4, mainX: [0.3, 0.7], mainW: [0.3, 0.42], sideX: [0.2, 0.8], sideW: [0.1, 0.2], sideH: [0.5, 0.8], x0f: 0.02, x1f: 0.98 }, peaks: [1, 1], height: [0.7, 0.85] },
+        cun: 0.7, axe: true, outline: 1.05, foot: [0.22, 0.34], moss: [2, 6],
+      };
+    case 'cliff': // asymmetric: a sheer face on one side, a long slope on the other
+      return {
+        main: { a: 2, b: 0.8, skew: [0.3, 0.36], rough: 1.1, peaks: 0, mainX: [0.16, 0.24], mainW: [0.21, 0.24], sideX: [0.45, 0.75], sideW: [0.08, 0.14], sideH: [0.3, 0.5], x0f: 0.04, x1f: 0.96 },
+        peaks: [1, 3], height: [0.7, 0.92],
+        back: { spec: { ...BELL, b: 0.9, rough: 0.8, mainX: [0.5, 0.7], mainW: [0.2, 0.3], sideX: [0.4, 0.85], sideW: [0.12, 0.2], sideH: [0.5, 0.8], x0f: 0.1, x1f: 0.95 }, peaks: [1, 2], height: [0.38, 0.5] },
+        cun: 1, axe: true, outline: 1.1, foot: [0.28, 0.4], moss: [3, 8],
+      };
+    case 'hill': // low rounded foothill humps
+    default:
+      return {
+        main: { ...BELL, b: 1.2, rough: 0.5, peaks: 0, mainX: [0.38, 0.62], mainW: [0.34, 0.46], sideX: [0.18, 0.82], sideW: [0.2, 0.32], sideH: [0.5, 0.8], x0f: 0.04, x1f: 0.96 },
+        peaks: [1, 3], height: [0.32, 0.46],
+        back: null,
+        cun: 0.35, axe: false, outline: 0.55, foot: [0.4, 0.5], moss: [0, 3],
+      };
+  }
+}
+
+/** Family of a variant: from the manifest list, else by generator (older manifests). */
+export function familyOf(entry: AssetEntry, variant: number, generator: string): Family {
+  const params = entry.visual.source.type === 'procedural' ? entry.visual.source.params : {};
+  const list = params.families;
+  if (Array.isArray(list) && list.length > 0) {
+    const f = String(list[variant % list.length]) as Family;
+    if (FAMILIES.includes(f)) return f;
+  }
+  return generator === 'hill.v1' ? 'hill' : 'range';
+}
+
 export function paintMountain(entry: AssetEntry, variant: number, key: string, pal: Ink, generator: string): HTMLCanvasElement {
   const [vw, vh] = entry.visual.visualSize;
   const W = Math.round(vw * ART_PX_PER_CELL), H = Math.round(vh * ART_PX_PER_CELL);
@@ -235,36 +332,37 @@ export function paintMountain(entry: AssetEntry, variant: number, key: string, p
   const rng = rngFor('art', `${key}#${variant}`);
   const noise = createSimplex2D(rng);
   const params = entry.visual.source.type === 'procedural' ? entry.visual.source.params : {};
-  const hill = generator === 'hill.v1';
-  const [pLo, pHi] = range(params, hill ? 'humps' : 'peaks', [1, 3]);
-  const peaks = pLo + rng.int(pHi - pLo + 1);
-  const steep = Number(params.steep ?? 1);
-  const cun = Number(params.cun ?? 0.6);
+  const family = familyOf(entry, variant, generator);
+  const hill = family === 'hill';
+  const fs = familySpec(family, Number(params.steep ?? 1));
+  const cun = Number(params.cun ?? 0.6) * fs.cun;
   const s = ART_PX_PER_CELL / 56;
+  const pick = ([lo, hi]: Span) => lo + rng.int(hi - lo + 1);
 
-  const maxH = gy * (hill ? rng.range(0.4, 0.6) : rng.range(0.84, 0.96));
-  const fadeFrom = hill ? 0.45 : 0.3;
+  const maxH = gy * rng.range(...fs.height);
+  const fadeFrom = rng.range(...fs.foot);
 
-  // Back range: a lower, paler massif behind the main one (layered depth, trùng điệp).
-  if (!hill) {
-    const back = makeProfile(rng, noise, W, gy, maxH * rng.range(0.62, 0.8), 1 + rng.int(2), (0.5 + 0.6 * steep) * rng.range(0.9, 1.3), 0.8, 0.01, 0.99);
+  // Back range: a lower, paler massif behind the main one (far ink layer, trùng điệp).
+  if (fs.back) {
+    const back = makeProfile(rng, noise, W, gy, maxH * rng.range(...fs.back.height), { ...fs.back.spec, peaks: pick(fs.back.peaks) });
     for (let i = 0; i < back.ys.length; i++) back.ys[i] -= maxH * 0.04;
-    paintMass(ctx, back, rng, noise, pal, gy, s, { far: true, hill, cun: cun * 0.6, W });
+    paintMass(ctx, back, rng, noise, pal, gy, s, { far: true, hill, cun: cun * 0.6, W, axe: fs.axe });
     brushOutline(ctx, back, noise, pal.ink[2], 1.4 * s, 0.6, gy, fadeFrom);
   }
 
-  const pr = makeProfile(rng, noise, W, gy, maxH, peaks, hill ? 1.2 : (0.6 + 0.6 * steep) * rng.range(0.85, 1.2), hill ? 0.5 : 1, hill ? 0.04 : 0.08, hill ? 0.96 : 0.92);
-  paintMass(ctx, pr, rng, noise, pal, gy, s, { far: false, hill, cun, W });
+  const pr = makeProfile(rng, noise, W, gy, maxH, { ...fs.main, peaks: pick(fs.peaks) });
+  paintMass(ctx, pr, rng, noise, pal, gy, s, { far: false, hill, cun, W, axe: fs.axe });
 
-  // Outline: a soft bleed pass, then the crisp brush line.
+  // Outline: a soft bleed pass, then the crisp brush line; weight varies by family and variant.
+  const ow = fs.outline * rng.range(0.85, 1.15);
   ctx.filter = `blur(${Math.max(1, Math.round(1.8 * s))}px)`;
-  brushOutline(ctx, pr, noise, pal.ink[2], (hill ? 2 : 4) * s, hill ? 0.18 : 0.35, gy, fadeFrom);
+  brushOutline(ctx, pr, noise, pal.ink[2], (hill ? 2 : 4) * s * ow, hill ? 0.18 : 0.35, gy, fadeFrom);
   ctx.filter = 'none';
-  brushOutline(ctx, pr, noise, hill ? pal.ink[2] : pal.ink[0], (hill ? 1.0 : 2) * s, hill ? 0.42 : 0.85, gy, fadeFrom);
+  brushOutline(ctx, pr, noise, hill ? pal.ink[2] : pal.ink[0], (hill ? 1.0 : 2) * s * ow, hill ? 0.42 : 0.85, gy, fadeFrom);
 
   // Moss dots (điểm rêu) along the upper crest.
   const topY = Math.min(...pr.tops.map((p) => p.y));
-  const dots = hill ? rng.int(3) : 5 + rng.int(9);
+  const dots = pick(fs.moss);
   for (let i = 0; i < dots; i++) {
     const x = rng.range(pr.xs[6], pr.xs[pr.xs.length - 7]);
     const crest = topAt(pr, x);
@@ -281,7 +379,7 @@ export function paintMountain(entry: AssetEntry, variant: number, key: string, p
 
   // Mist at the foot: erase the base so the stamp melts into the terrain wash.
   ctx.globalCompositeOperation = 'destination-out';
-  const mist = ctx.createLinearGradient(0, gy - (gy - topY) * (hill ? 0.55 : 0.4), 0, gy + 1);
+  const mist = ctx.createLinearGradient(0, gy - (gy - topY) * (hill ? 0.55 : fadeFrom + 0.1), 0, gy + 1);
   mist.addColorStop(0, 'rgba(0,0,0,0)');
   mist.addColorStop(0.6, 'rgba(0,0,0,0.5)');
   mist.addColorStop(1, 'rgba(0,0,0,1)');

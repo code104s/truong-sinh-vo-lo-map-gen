@@ -35,6 +35,13 @@ export async function loadArt(manifest: Manifest): Promise<{ textures: ArtTextur
   return { textures, warnings };
 }
 
+/** Sprite treatment of the three ink layers (near / mid / far) chosen by StampInstance.tone. */
+export const INK_LAYER = {
+  far: { alpha: 0.82, tint: 0xe8ecec },
+  mid: { alpha: 0.95, tint: 0xffffff },
+  near: { alpha: 1, tint: 0xddd6cb },
+} as const;
+
 export interface StampSprite {
   sprite: Sprite;
   stamp: StampInstance;
@@ -57,8 +64,9 @@ export function createStampLayer(stamps: StampInstance[], manifest: Manifest, ar
     sp.height = h;
     if (s.flip) sp.scale.x = -Math.abs(sp.scale.x);
     sp.position.set(s.x * CELL_PX, s.y * CELL_PX);
-    sp.alpha = s.tone < 0 ? 0.86 : 1;
-    if (s.tone > 0) sp.tint = 0xe6e0d6;
+    // Ink layers from the composer's tone: far masses paler and cooler, near ones darker and warmer.
+    sp.alpha = s.tone < 0 ? INK_LAYER.far.alpha : s.tone > 0 ? INK_LAYER.near.alpha : INK_LAYER.mid.alpha;
+    sp.tint = s.tone < 0 ? INK_LAYER.far.tint : s.tone > 0 ? INK_LAYER.near.tint : INK_LAYER.mid.tint;
     sp.cullable = true;
     layer.addChild(sp);
     sprites.push({ sprite: sp, stamp: s });

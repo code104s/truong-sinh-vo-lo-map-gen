@@ -7,6 +7,7 @@ import manifest from '../../src/assets/manifest.json';
 import { logicOf, type Manifest } from '../../src/assets/manifestTypes';
 import { generateWorld, type WorldData } from '../../src/worldgen/index';
 import { buildFieldImage, FIELD_UPSAMPLE, SDF_RANGE } from '../../src/render/fields';
+import { buildHydroView, LAKE_KIND_CODE } from '../../src/render/hydroView';
 import { DX8, DY8 } from '../../src/core/grid';
 import { encodePng } from '../png';
 import { terrainParts, type TerrainParts } from './terrain-parts';
@@ -530,6 +531,8 @@ for (const seed of seeds) {
     landClass: Array.from({ length: N }, (_, i) => (hydro.sea[i] ? -1 : hydro.lakeId[i] ? -2 : H[i] < cfg.hillLevel - 0.14 ? 0 : H[i] < cfg.hillLevel ? 1 : H[i] < cfg.mountainLevel ? 2 : 3)),
     covered: Array.from({ length: N }, (_, i) => { const px = (i % n) + 0.5, py = Math.floor(i / n) + 0.5; return st.some((s) => stampCovers(s, px, py)) || mistCovers(world, px, py) ? 1 : 0; }),
     lakeId: Array.from(hydro.lakeId),
+    // Render-side lake kind (1 mountain, 2 valley, 3 plain) per cell, for the lake tone check (A3).
+    lakeKind: (() => { const v = buildHydroView(world); return Array.from(hydro.lakeId, (id) => (id ? LAKE_KIND_CODE[v.lakes[id - 1].kind] : 0)); })(),
   }));
   console.log(seed, JSON.stringify({ lakes: lakes.length, rivers: rivers.byEnd, stamps: st.length }));
 }

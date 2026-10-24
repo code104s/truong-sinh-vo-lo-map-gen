@@ -30,6 +30,7 @@ uniform float uSdfSize;
 uniform float uPxPerCell;
 uniform vec3 uPaper;
 uniform vec3 uInk0;
+uniform vec3 uInk1;
 uniform vec3 uInk2;
 uniform vec3 uInk3;
 uniform vec3 uIndigo;
@@ -79,8 +80,6 @@ void main() {
   float mott = fbm(cell * 0.06 + 3.7);
   vec3 paper = uPaper * (0.955 + 0.07 * fibre);
 
-  float land = smoothstep(-px, px, sdf);
-
   // Land: pale washes only (thủy mặc ngũ sắc, màu nhạt).
   vec3 lc = paper;
   float lowland = 1.0 - smoothstep(0.3, 0.52, hgt);
@@ -90,10 +89,16 @@ void main() {
   lc = mix(lc, mix(uOchre, uInk3, 0.5), shadow * 0.16 * smoothstep(0.32, 0.55, hgt));
   float lit = clamp((shade - 0.55) * 2.0, 0.0, 1.0);
   lc = mix(lc, paper * 1.02, lit * 0.2);
-  // A darker damp band just inland of the coast, as if the wash pooled at the edge.
-  lc = mix(lc, uOchre, (1.0 - smoothstep(0.0, 0.6, sdf)) * 0.12);
 
-  // Water: indigo wash strongest near the shore, fading to bare paper offshore.
+  // Lakes and sea are drawn differently. Lake kind (1 mountain, 2 valley, 3 plain, 0 = sea or
+  // land far from a lake) comes from fields.ts, nearest-sampled per cell.
+  float kind = floor(texture(uSdf, (cell + warp) / uSize).b * 255.0 / 64.0 + 0.5);
+  float isLake = step(0.5, kind);
+  float mtn = 1.0 - step(0.5, abs(kind - 1.0));
+  float val = 1.0 - step(0.5, abs(kind - 2.0));
+  float pln = 1.0 - step(0.5, abs(kind - 3.0));
+
+  // Sea: indigo wash strongest near the shore, fading to bare paper offshore.
   float off = clamp(-sdf / 5.0, 0.0, 1.0);
   vec3 wc = mix(paper, uIndigo, (0.42 - 0.3 * off) * (0.7 + 0.6 * mott));
   // Ripple lines parallel to the coast, broken by a dry-brush mask.
@@ -107,15 +112,38 @@ void main() {
   }
   wc = mix(wc, uInk2, rip * step(sdf, 0.0) * 0.55);
 
-  vec3 col = mix(wc, lc, land);
+  // Lake: one still wash whose darkness follows the real depth (shallow edges pale, deep water
+  // dark), no ripple rings. Mountain lakes are darker and cooler, plain lakes palest and warmer.
+  float dep = d.r;
+  float lakeA = mtn * (0.36 + 0.36 * dep) + val * (0.30 + 0.30 * dep) + pln * (0.24 + 0.26 * dep);
+  vec3 lakeTint = mix(uIndigo, uInk3, mtn * 0.15);
+  lakeTint = mix(lakeTint, uGreen, pln * 0.3);
+  vec3 lwc = mix(paper, lakeTint, lakeA * (0.75 + 0.5 * mott));
+  // Valley lakes: faint broken horizontal streaks, as wind on a long narrow water.
+  float streak = smoothstep(0.6, 0.78, fbm(vec2(cell.x * 0.3, cell.y * 3.5) + 5.0));
+  lwc = mix(lwc, uInk2, val * streak * smoothstep(0.2, 0.6, -sdf) * 0.16);
+  wc = mix(wc, lwc, isLake);
 
-  // Coastline in ink: varying width, with dry-brush gaps.
-  float lw = 0.025 + 0.045 * fbm(cell * 0.8);
-  float coast = 1.0 - smoothstep(lw, lw + 1.2 * px, abs(sdf + 0.02));
+  // Plain lakes have a soft shore: the wash fades over a short band instead of a hard edge.
+  float soft = mix(px, 0.14, pln);
+  float landW = smoothstep(-soft, soft, sdf);
+  // Less pooled damp band around lakes than along the sea coast.
+  lc = mix(lc, uOchre, (1.0 - smoothstep(0.0, 0.6, sdf)) * 0.12 * (1.0 - 0.6 * isLake));
+  // Plain lakes: a pale green marshy fringe on the land side instead of an ink edge.
+  lc = mix(lc, uGreen, pln * (1.0 - smoothstep(0.0, 0.7, sdf)) * 0.16 * (0.6 + 0.8 * mott));
+
+  vec3 col = mix(wc, lc, landW);
+
+  // Coastline in ink: varying width, with dry-brush gaps. Lake shores are thinner and crisper
+  // (mountain), broken (valley) or barely there (plain).
   float dry = smoothstep(0.2, 0.7, fbm(cell * 1.7 + 9.0));
-  col = mix(col, uInk0, coast * (0.3 + 0.35 * dry));
-  // Soft halo of diluted ink around the line (ink bleed).
-  col = mix(col, uInk3, (1.0 - smoothstep(0.0, 0.3, abs(sdf))) * 0.12);
+  float lw = mix(0.025 + 0.045 * fbm(cell * 0.8), 0.012 + 0.012 * fbm(cell * 0.8), isLake);
+  float coast = 1.0 - smoothstep(lw, lw + 1.2 * px, abs(sdf + 0.02));
+  float seaInk = 0.3 + 0.35 * dry;
+  float lakeInk = mtn * 0.55 + val * (0.18 + 0.32 * dry) + pln * 0.1;
+  col = mix(col, mix(uInk0, uInk1, isLake), coast * mix(seaInk, lakeInk, isLake));
+  // Soft halo of diluted ink around the sea coast (ink bleed); none around lakes.
+  col = mix(col, uInk3, (1.0 - smoothstep(0.0, 0.3, abs(sdf))) * 0.12 * (1.0 - isLake));
 
   // Vignette: paper darkens slightly towards the edges of the map.
   vec2 q = vUV - 0.5;
@@ -160,6 +188,7 @@ export function createTerrainLayer(field: FieldImage, size: number, manifest: Ma
     uPxPerCell: { value: CELL_PX, type: 'f32' },
     uPaper: { value: hexToRgb01(pal.paper), type: 'vec3<f32>' },
     uInk0: { value: hexToRgb01(pal.ink[0]), type: 'vec3<f32>' },
+    uInk1: { value: hexToRgb01(pal.ink[1]), type: 'vec3<f32>' },
     uInk2: { value: hexToRgb01(pal.ink[2]), type: 'vec3<f32>' },
     uInk3: { value: hexToRgb01(pal.ink[3]), type: 'vec3<f32>' },
     uIndigo: { value: hexToRgb01(pal.indigo), type: 'vec3<f32>' },

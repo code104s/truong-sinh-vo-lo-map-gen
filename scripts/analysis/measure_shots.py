@@ -1,6 +1,6 @@
 # Analysis only: contrast of rivers and land-class colour differences in the Z1 QA screenshots.
 #   python3 scripts/analysis/measure_shots.py <shotsDir> <analysisDir>
-import json, sys
+import json, os, sys
 import numpy as np
 from PIL import Image
 
@@ -18,6 +18,8 @@ def lab(rgb):
 out = []
 for k in range(1, 21):
     seed = f"tsvl-{k:02d}"
+    if not os.path.exists(f"{shots}/{seed}_Z1.png"):
+        continue
     im = np.asarray(Image.open(f"{shots}/{seed}_Z1.png").convert('RGB')).astype(float)
     L = lab(im)
     S = json.load(open(f"{an}/{seed}_samples.json"))
@@ -53,7 +55,21 @@ for k in range(1, 21):
     ys, xs = np.where(lid > 0)
     lakeL = L[(OY + (ys + 0.5) * PX).astype(int), (OX + (xs + 0.5) * PX).astype(int), 0] if len(ys) else np.array([0])
     landL = L[(OY + (np.where(cls >= 0)[0] + 0.5) * PX).astype(int), (OX + (np.where(cls >= 0)[1] + 0.5) * PX).astype(int), 0]
+    # Lake tone by render-side kind: mean L* at uncovered lake cell centres whose 8 neighbours are
+    # the same lake (interior, away from the shore line).
+    kindL = {}
+    if 'lakeKind' in S:
+        kd = np.array(S['lakeKind']).reshape(n, n)
+        inner = (lid > 0)
+        for dy in (-1, 0, 1):
+            for dx in (-1, 0, 1):
+                inner &= np.roll(np.roll(lid, dy, 0), dx, 1) == lid
+        for code, name in [(1, 'mountain'), (2, 'valley'), (3, 'plain')]:
+            ys, xs = np.where(inner & (kd == code) & (cov == 0))
+            if len(ys):
+                kindL[name] = round(float(L[(OY + (ys + 0.5) * PX).astype(int), (OX + (xs + 0.5) * PX).astype(int), 0].mean()), 2)
     out.append({
+        'lakeL_by_kind': kindL,
         'seed': seed,
         'riverContrastL_small_p50': round(float(np.median(small)), 2) if len(small) else None,
         'riverContrastL_big_p50': round(float(np.median(big)), 2) if len(big) else None,
