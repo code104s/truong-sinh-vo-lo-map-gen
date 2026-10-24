@@ -1,0 +1,28 @@
+{
+  "name": "truong-sinh-vo-lo",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:browser": "vite build && node scripts/qa-shots.mjs qa-out --no-shots",
+    "bench": "vite-node scripts/bench-worldgen.ts",
+    "bench:fps": "vite build && node scripts/bench-fps.mjs",
+    "qa:shots": "vite build && node scripts/qa-shots.mjs qa-out",
+    "qa:metrics": "vite-node scripts/metrics.ts",
+    "qa:ridges": "vite-node scripts/debug-image.ts -- qa-out/ridges tsvl-01 tsvl-02 tsvl-03 tsvl-04 tsvl-05 tsvl-06 tsvl-07 tsvl-08 tsvl-09 tsvl-10 tsvl-11 tsvl-12 tsvl-13 tsvl-14 tsvl-15 tsvl-16 tsvl-17 tsvl-18 tsvl-19 tsvl-20",
+    "golden:update": "vite-node scripts/update-golden.ts"
+  },
+  "dependencies": {
+    "pixi.js": "8.13.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "typescript": "5.9.3",
+    "vite": "6.4.1",
+    "vitest": "3.2.4"
+  }
+}

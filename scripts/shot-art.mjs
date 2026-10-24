@@ -1,0 +1,12 @@
+import { chromium, LAUNCH_ARGS } from './pw.mjs';
+import { startServer } from './serve.mjs';
+const [out = 'art.png', scale = '0.5'] = process.argv.slice(2);
+const srv = await startServer(4175);
+const browser = await chromium.launch({ args: LAUNCH_ARGS });
+const page = await browser.newPage({ viewport: { width: 1600, height: 900 } });
+page.on('pageerror', (e) => console.log('[pageerror]', e.message));
+await page.goto(`${srv.url}art.html?scale=${scale}`);
+await page.waitForSelector('body[data-ready="1"]');
+const data = await page.evaluate(() => document.querySelector('canvas').toDataURL('image/png'));
+(await import('node:fs')).writeFileSync(out, Buffer.from(data.split(',')[1], 'base64'));
+await browser.close(); srv.close();

@@ -1,0 +1,14 @@
+import { chromium } from './pw.mjs';
+import { startServer } from './serve.mjs';
+const [seed = 'tsvl-01', out = 'shot.png', view = 'Z1', overlay = '0'] = process.argv.slice(2);
+const srv = await startServer();
+const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
+const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
+page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') console.log('[page]', m.text()); });
+page.on('pageerror', (e) => console.log('[pageerror]', e.message));
+await page.goto(`${srv.url}?seed=${seed}&shot=1&view=${view}&overlay=${overlay}`);
+await page.waitForFunction(() => window.__tsvl?.ready || window.__tsvl?.warnings.length, null, { timeout: 400000 });
+const info = await page.evaluate(() => ({ w: window.__tsvl.warnings, h: window.__tsvl.worldHash, gen: window.__tsvl.genMs, build: window.__tsvl.buildMs }));
+console.log(JSON.stringify(info));
+await page.screenshot({ path: out });
+await browser.close(); srv.close();

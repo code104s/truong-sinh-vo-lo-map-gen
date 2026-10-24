@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Trường Sinh Vô Lộ — PoC 0</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #e9e1cf; overflow: hidden; }
+      #app { position: fixed; inset: 0; }
+      #hud {
+        position: fixed; left: 12px; bottom: 10px; font: 12px/1.4 ui-monospace, monospace;
+        color: #3b372f; background: rgba(236, 228, 210, 0.85); padding: 6px 9px; border-radius: 4px;
+        pointer-events: none; white-space: pre;
+      }
+      body.shot #hud { display: none; }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="hud"></div>
+    <script type="module" src="/src/app/main.ts"></script>
+  </body>
+</html>
