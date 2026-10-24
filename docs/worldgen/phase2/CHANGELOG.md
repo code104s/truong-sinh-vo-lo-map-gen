@@ -2,6 +2,23 @@
 
 Mỗi mục ghi đợt, loại thay đổi (render / art / worldgen), phiên bản worldgen và báo cáo chi tiết.
 
+## Đợt 2, B4 — composition núi (worldgen 2.0.0, 2026-10-24)
+
+Báo cáo cuối Đợt 2 (sáu phần): [02-worldgen-v2.md](02-worldgen-v2.md), mục 9.
+
+### Thêm
+- `logic.variantFamilies` trong manifest (họ dáng là logic; validator kiểm). `StampInstance.family` = họ mà vai trò địa hình chọn.
+- `src/worldgen/composition.ts`: `summitFamily`, `ridgeFamily`, `slopeRatio`, `isSummitGround`, `valleyCorridor`, `mountainDistance`, `FAMILY_FALLBACK`; vai trò `spur`, `summit` (thay `massif`).
+- `src/qa/metrics.ts`: `structureMetrics` (M4–M6, M9). `tests/composition.test.ts`: M4–M9.
+- `scripts/qa/wave2-metrics.ts`.
+
+### Đổi
+- Bỏ lưới massif 3 ô và lưới đồi 4 ô. Thay bằng: sống chính / nhánh theo hướng, đỉnh phụ trên gò và sống, đồi chỉ trong dải chân núi 6 ô.
+- Không footprint trong hành lang thung lũng (1 ô quanh sông lớn).
+- `tone` theo hướng sườn và vị trí trong massif, không còn ngẫu nhiên.
+- `src/render/stampArt.ts`: đọc họ từ `logic.variantFamilies`.
+- `src/app/main.ts`: `setCamera` cho ảnh QA cùng camera.
+
 ## Đợt 2, B2 — hồ (worldgen 2.0.0, 2026-10-24)
 
 `WORLDGEN_VERSION` = 2.0.0. Golden v1 (`golden/worldgen-v1.json`) giữ nguyên và có test khoá sha256; hash 2.0.0 ghi vào `golden/worldgen-v2.candidate.json` cho tới khi anh nghiệm thu. Stage `terrain` của 20 seed vẫn bằng v1. Chi tiết và số đo: [02-worldgen-v2.md](02-worldgen-v2.md), mục "Kết quả B2".

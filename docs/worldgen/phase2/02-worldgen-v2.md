@@ -215,3 +215,62 @@ Sau mỗi bước em chạy toàn bộ test và đo lại; ảnh trước/sau �
 2. Dải chân núi thưa hơn có thể làm bản đồ trống hơn ở seed ít núi. Đây là lưu bạch có chủ ý, nhưng cần anh xem ảnh.
 3. Thay lưới massif bằng đỉnh phụ phụ thuộc vào độ nhám của địa hình. Ở cao nguyên phẳng có thể thiếu điểm đặt; khi đó cao nguyên dùng họ đỉnh bằng ở các đỉnh phụ thưa.
 4. Đổi `logic` (thêm `variantFamilies`) làm đổi header hash. Đó là điều đã được phép ở 2.0.0.
+
+## 9. Báo cáo cuối Đợt 2 (2026-10-24)
+
+Commit: B2 `f2a0236`, B4a `13a437d`, B4b `15611e4`, B4c `7e2d408`. "Trước" = v1 (tag `worldgen-v1`, ảnh Đợt 1); "sau" = 2.0.0. Hai bên cùng renderer, cùng camera: Z2/Z3 dùng camera của v1 (`qa-out/wave1/cameras.json`) vì worldgen mới dời tiêu điểm ở 4 seed. Ảnh và số liệu: `qa/phase2/wave2/` (bảng trước/sau từng seed, `overview_Z1.png`, `metrics.json`, `lake-tone.txt`, `bench.txt`, `report.json`).
+
+### 9.1 Chất lượng địa hình
+
+- Stage `terrain` không đổi: hash 20/20 seed bằng v1 (có test riêng). Đợt này không đụng tới heightmap; các vấn đề địa hình vĩ mô của Giai đoạn 1 (bố cục vùng, C4) vẫn nằm nguyên, chờ đề xuất `04-macro-layout-proposal` ở Đợt 3.
+- Thay đổi người xem thấy là do cách đặt nước và núi trên cùng địa hình. Đồng bằng và đồi xa núi giờ để trống (lưu bạch): phủ stamp trên đồng bằng trung bình 7,2% (v1 32,6%).
+
+### 9.2 Thuỷ văn
+
+- L1–L7 đạt hết (bảng ở "Kết quả B2"). Bất biến thuỷ văn 0 lỗi trên 20 seed.
+- Hồ: 160 → 135. Hồ móc câu 21,2% → 8,9%. Hồ dài tự nhiên 17 → 20. Tổng diện tích mặt hồ giảm 29%.
+- Sông: 766 → 756 đoạn. Số đoạn ra biển (147) và ra biên vùng (210) giữ nguyên; 24 đoạn trước đổ vào hồ giờ thành hợp lưu, vì các hồ đó không còn. Không ép sông nào ra biển.
+- `outletType` của hồ: 53 ra biển, 42 vào hồ khác, 40 ra biên vùng.
+- A3 theo cách đo đề xuất (chưa là tiêu chí, chờ anh đồng ý): trong mọi loại hồ, L* đều giảm theo độ sâu. Hồ núi tối hơn hồ đồng bằng ở cả 4 nhóm độ sâu, chênh 3,8–7,9 L*. Chênh giữa nhóm nông nhất và sâu nhất là 6,6 L* với hồ núi, nhưng chỉ 3,4 với hồ thung lũng và 2,5 với hồ đồng bằng (ngưỡng đề xuất là 4).
+
+### 9.3 Composition núi
+
+| # | Tiêu chí | v1 | 2.0.0 | Đạt |
+|---|---|---|---|---|
+| M1 | Một chủ phong mỗi dãy ≥ 3 núi; không footprint trên nước | đạt | 89/89; 0 | ✓ |
+| M2 | Không biến thể lặp kề; ≤ 25% một nhóm | đạt | 0; 25,0% | ✓ |
+| M3 | Cặp kề trên sống chồng 20–45% | ≥ 90% | 98,8% | ✓ |
+| M4 | Stamp từ lưới đều ≤ 30% | 69–86% | 0% | ✓ |
+| M5 | Họ theo vai trò địa hình | theo hash | bộ phân loại khớp 100%; 96,5% stamp dùng đúng họ được chọn, phần còn lại lùi theo bảng cố định | ✓ |
+| M6 | Không footprint trong hành lang thung lũng | — | 0 | ✓ |
+| M7 | Phủ trung bình theo vùng | núi 90,5 / cao nguyên 81,5 / chân núi 63,4 / thung lũng 23,0 / đồng bằng 32,6 / ven biển 11,8 | 93,0 / 67,9 / 50,4 / 5,3 / 7,2 / 8,2 | ✓ |
+| M8 | Đồng bằng ≤ 25% ở mọi seed | — | tối đa 15,4% (tsvl-17) | ✓ |
+| M9 | Lớp xa nằm phía bắc lớp gần | — | 78/78 massif | ✓ |
+
+Cấu trúc mới: chủ phong + vai (cùng họ với chủ phong), khách phong, sống chính (đông–tây thành dãy, bắc–nam thành chóp/vách xếp chồng), nhánh (`mountain.low`, nhỏ dần về đầu nhánh), đỉnh phụ, chân núi. Tổng stamp 6 821 → 3 122. Theo vai trò: đỉnh phụ 1 509, sống 917, nhánh 166, vai 149, khách phong 142, đồi chân núi 145, chủ phong 94.
+
+**Khác với kế hoạch:**
+1. **Đỉnh phụ.** Kế hoạch là "cực đại địa phương bán kính 2, chênh ≥ 0,02". Làm đúng như vậy thì quá thưa: chỉ 364 đỉnh trên 20 seed, và tsvl-17 (seed nhiều núi nhất) trông như đồng bằng. Lấp mọi ô núi theo độ cao giảm dần thì lại thành một tấm thảm đều (phủ núi 99%). Bản cuối đặt đỉnh phụ trên ô cao hơn trung bình trong bán kính 3 ít nhất 0,012, tức gò và sống. Ô được duyệt theo độ cao giảm dần và giữ khoảng cách bằng giới hạn chồng nền 0,15. Chỗ trũng, yên ngựa rộng và mặt cao nguyên phẳng không có stamp, nên khối núi tách thành từng cụm, giữa các cụm có khoảng trống.
+2. **Lớp mực.** Kế hoạch chỉ dùng vị trí trong massif (nam/bắc). Với massif lớn (cả một vùng núi là một cluster), cách đó tạo ra một dải đậm ngang ở đáy. Bản cuối cộng thêm hướng sườn: sườn đổ về nam là mặt trước, đổ về bắc là sau đỉnh. Lớp mực lấy theo dấu của tổng hai yếu tố.
+3. **Đỉnh bằng.** Ngưỡng là 6 ô trong 0,02 (kế hoạch ghi 0,03). Với 0,03, gần một nửa đỉnh thấp thành mặt bàn. Trong `variantFamilies`: `mountain.low` đổi 3 biến thể "đồi" (vai trò địa hình không bao giờ chọn họ này cho núi thấp) thành 2 đỉnh bằng + 1 chóp; `mountain.tall` có 2 đỉnh bằng thay vì 1.
+
+### 9.4 Hiệu năng
+
+- Sinh thế giới (Node, trung vị 20 seed × 9 lần, chạy xen kẽ v1/v2 trên cùng máy): v1 53,8 ms, 2.0.0 57,3 ms, tức +6,5% (giới hạn +20%).
+- Trình duyệt: `buildMs` trung vị 135 → 144 ms. `genMs` trong worker dao động theo tải máy khi chụp, nên không dùng để so.
+
+### 9.5 Tính tất định
+
+- Node = worker = main thread cho 20/20 seed, khớp golden candidate (`golden/worldgen-v2.candidate.json`).
+- Golden v1 giữ nguyên (test khoá sha256). Stage `terrain` bằng v1.
+- Test thứ tự ứng viên và chunk của composition vẫn đạt. Worldgen không dùng sin/cos/pow/random/Date.
+- Toàn bộ 176 test đạt. Golden v2 chính thức chỉ ghi sau khi anh nghiệm thu.
+
+### 9.6 Lỗi hình ảnh còn lại
+
+1. **Hồ nhạt hơn Đợt 1.** Độ sâu giờ đo từ mặt nước thật. Hồ thung lũng và hồ đồng bằng gần như không đổi độ đậm theo độ sâu (xem 9.2). Hướng sửa là render (dải độ sâu `LAKE_DEPTH_RANGE`, độ dốc tông theo loại hồ), để Đợt 3.
+2. **Độ đậm núi ở Z1.** Theo yêu cầu, em chưa đổi alpha. Ảnh Z1 xuất lại là `overview_Z1.png`, để anh quyết.
+3. **Mặt bàn (đỉnh bằng)** vẫn đọc như hộp ở Z2, chủ yếu trên cao nguyên. Hình mặt bàn do art; đây là việc của art, không phải worldgen.
+4. **Đồi chân núi rất nhỏ** (145 đồi trên 20 seed), ở Z2 trông như chấm lẻ. Có thể tăng tỉ lệ hoặc gom thành cụm 2–3 gò.
+5. **Vùng núi lớn ở tsvl-17** vẫn có mảng trống rộng trên cao nguyên phẳng: cao nguyên phủ 39–52% ở seed này. Đúng luật, nhưng cần anh xem có chấp nhận được không.
+6. **Đất trũng khô** quanh các hồ bị thu nhỏ (phần lòng chảo không còn nước) chưa có cách vẽ riêng (đầm, lau sậy).
