@@ -65,12 +65,34 @@ export const FAMILY_FALLBACK: Record<Family, readonly Family[]> = {
   hill: ['hill', 'range', 'flat', 'cliff', 'pinnacle'],
 };
 
-/** Height a minor summit must stand above everything within 2 cells. */
-const MINOR_RELIEF = 0.02;
-/** Cells within 0.03 of a summit's height that make it a flat top (đỉnh bằng). */
+/** Width in cells of the foothill band around mountain ground that may hold knolls. */
+const FOOTHILL_BAND = 6;
+/** Ground overlap a minor summit may have with any stamp already placed (sets their spacing). */
+const SUMMIT_OVERLAP = 0.15;
+/** A minor summit stands this much above the mean height within SUMMIT_REACH cells. */
+const SUMMIT_RELIEF = 0.012;
+const SUMMIT_REACH = 3;
+/** Height drop over 4 cells north to south that turns a slope into a front (near) or back (far) face. */
+const ASPECT_DROP = 0.02;
+/** Cells within FLAT_TOP_TOLERANCE of a summit's height that make it a flat top (đỉnh bằng). */
 const FLAT_TOP_CELLS = 6;
+const FLAT_TOP_TOLERANCE = 0.02;
 /** East/west slope ratio that makes a summit or ridge a cliff (vách). */
 const CLIFF_RATIO = 2;
+
+/** True where a cell stands SUMMIT_RELIEF above the mean height within SUMMIT_REACH (knob or crest). */
+export function isSummitGround(H: Float32Array, w: number, x: number, y: number): boolean {
+  let sum = 0, cnt = 0;
+  for (let dy = -SUMMIT_REACH; dy <= SUMMIT_REACH; dy++) {
+    for (let dx = -SUMMIT_REACH; dx <= SUMMIT_REACH; dx++) {
+      const nx = x + dx, ny = y + dy;
+      if (nx < 0 || ny < 0 || nx >= w || ny >= w) continue;
+      sum += H[ny * w + nx];
+      cnt++;
+    }
+  }
+  return H[y * w + x] - sum / cnt >= SUMMIT_RELIEF;
+}
 
 /** East and west drop from a cell over 3 cells; the larger over the smaller (min 0.005). */
 export function slopeRatio(H: Float32Array, w: number, x: number, y: number): number {
@@ -82,7 +104,7 @@ export function slopeRatio(H: Float32Array, w: number, x: number, y: number): nu
 
 /**
  * Silhouette of a summit from the ground around it: flat when at least FLAT_TOP_CELLS cells
- * (4-connected to it, within 4 cells) lie within 0.03 of its height; cliff when one flank drops
+ * (4-connected to it, within 4 cells) lie within FLAT_TOP_TOLERANCE of its height; cliff when one flank drops
  * CLIFF_RATIO times faster than the other; else pinnacle.
  */
 export function summitFamily(H: Float32Array, sea: Uint8Array, w: number, x: number, y: number): Family {
@@ -95,7 +117,7 @@ export function summitFamily(H: Float32Array, sea: Uint8Array, w: number, x: num
       const nx = cx + dx, ny = cy + dy;
       if (nx < 0 || ny < 0 || nx >= w || ny >= w || Math.abs(nx - x) > 4 || Math.abs(ny - y) > 4) continue;
       const nb = ny * w + nx;
-      if (seen.has(nb) || sea[nb] || Math.abs(H[nb] - top) > 0.03) continue;
+      if (seen.has(nb) || sea[nb] || Math.abs(H[nb] - top) > FLAT_TOP_TOLERANCE) continue;
       seen.add(nb);
       queue.push(nb);
     }
@@ -131,6 +153,7 @@ export function generateCandidates(
   const cxOf = (c: number) => (c % w) + 0.5;
   const cyOf = (c: number) => Math.floor(c / w) + 0.5;
 
+  const corridor = valleyCorridor(hydro, cfg);
   const clusterOfPath = new Int32Array(ridges.paths.length).fill(-1);
   for (const cl of ridges.clusters) for (const p of cl.paths) clusterOfPath[p] = cl.id;
 
@@ -141,7 +164,7 @@ export function generateCandidates(
     for (const pi of cl.peaks) {
       const c = ridges.peaks[pi].cell;
       for (const dy of [1.2, 2, 0.6]) {
-        if (footprintFits(hydro, logic['mountain.main'].footprint, 1, cxOf(c), cyOf(c) + dy, w)) {
+        if (footprintFits(hydro, logic['mountain.main'].footprint, 1, cxOf(c), cyOf(c) + dy, w, corridor)) {
           mainIdx = pi; mx = cxOf(c); my = cyOf(c) + dy;
           break;
         }
@@ -249,24 +272,15 @@ export function generateCandidates(
     }
   });
 
-  // Minor summits (đỉnh phụ) on high ground off the ridge lines: local maxima within 2 cells
-  // standing at least MINOR_RELIEF above their surroundings. Positions come from the terrain, not
-  // from a lattice; they are accepted highest first (rank), and the composer's overlap limits keep
-  // them apart and off ground already covered by the structure above.
+  // Minor summits (đỉnh phụ) on high ground off the ridge lines: knobs and crests, i.e. mountain
+  // ground standing at least SUMMIT_RELIEF above the mean of the cells within SUMMIT_REACH.
+  // Hollows, broad saddles and flat tops get none, so the mountains break into groups with open
+  // ground between them (sơ mật) instead of an even carpet. Candidates are accepted highest first
+  // (rank) and kept apart by SUMMIT_OVERLAP, so the highest ground gets the first and largest stamps.
   for (let c = 0; c < w * w; c++) {
     if (hydro.sea[c] || hydro.lakeId[c] || hydro.river[c] || H[c] < cfg.mountainLevel - 0.02) continue;
     const x = c % w, y = (c - x) / w;
-    let isMax = true, low = H[c];
-    for (let dy = -2; dy <= 2 && isMax; dy++) {
-      for (let dx = -2; dx <= 2; dx++) {
-        const nx = x + dx, ny = y + dy;
-        if ((dx === 0 && dy === 0) || nx < 0 || ny < 0 || nx >= w || ny >= w) continue;
-        const nb = ny * w + nx;
-        if (H[nb] > H[c] || (H[nb] === H[c] && nb < c)) { isMax = false; break; }
-        if (H[nb] < low) low = H[nb];
-      }
-    }
-    if (!isMax || H[c] - low < MINOR_RELIEF) continue;
+    if (!isSummitGround(H, w, x, y)) continue;
     const key = H[c] >= cfg.mountainLevel + 0.1 ? 'mountain.tall' : 'mountain.low';
     out.push({
       key, role: 'summit', family: summitFamily(H, hydro.sea, w, x, y), clusterId: nearestCluster(ridges, x, y, w),
@@ -276,22 +290,28 @@ export function generateCandidates(
     });
   }
 
-  // Foothills on a jittered 4-cell lattice, sparse enough to leave empty paper (lưu bạch).
-  const near = ridgeDistance(ridges.ridge, w);
-  for (let gy = 0; gy < w; gy += 4) {
-    for (let gx = 0; gx < w; gx += 4) {
-      const jx = gx + Math.floor(hash01(s32, gx, gy, 7) * 4);
-      const jy = gy + Math.floor(hash01(s32, gx, gy, 8) * 4);
-      if (jx >= w || jy >= w) continue;
-      const c = jy * w + jx;
-      if (hydro.sea[c] || hydro.lakeId[c] || hydro.river[c]) continue;
-      // Rolling ground starts a little below hillLevel; low knolls (gò) thin out towards the plains.
-      const floor = cfg.hillLevel - 0.14;
-      if (H[c] < floor || H[c] >= cfg.mountainLevel || near[c] < 3) continue;
-      const chance = (H[c] - floor) / (cfg.mountainLevel - floor);
-      if (hash01(s32, jx, jy, 9) > (0.26 + 0.55 * chance) * (0.3 + 1.4 * clumpDensity(s32, jx + 7, jy + 7, 18))) continue;
-      out.push({ key: 'hill', role: 'hill', family: 'hill', clusterId: -1, x: jx + 0.5, y: jy + 0.5, baseScale: 0.65 + 0.45 * chance, path: -1, pathPos: 0 });
+  // Foothills (chân núi): knolls only in the band within FOOTHILL_BAND cells of mountain ground,
+  // thinning out with distance; plains and rolling ground far from the mountains stay empty
+  // (lưu bạch). A knoll is a local maximum among its 8 neighbours on rolling ground, kept with chance
+  // 1 - d / (FOOTHILL_BAND + 1) from a position hash, d = distance to mountain ground.
+  const toMtn = mountainDistance(hydro, cfg);
+  const rolling = cfg.hillLevel - 0.14;
+  for (let c = 0; c < w * w; c++) {
+    const d = toMtn[c];
+    if (d < 1 || d > FOOTHILL_BAND || hydro.sea[c] || hydro.lakeId[c] || hydro.river[c] || corridor[c] || H[c] < rolling) continue;
+    const x = c % w, y = (c - x) / w;
+    let isMax = true;
+    for (let dy = -1; dy <= 1 && isMax; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const nx = x + dx, ny = y + dy;
+        if ((dx === 0 && dy === 0) || nx < 0 || ny < 0 || nx >= w || ny >= w) continue;
+        const nb = ny * w + nx;
+        if (H[nb] > H[c] || (H[nb] === H[c] && nb < c)) { isMax = false; break; }
+      }
     }
+    if (!isMax || hash01(s32, x, y, 9) >= 1 - d / (FOOTHILL_BAND + 1)) continue;
+    const lift = (H[c] - rolling) / (cfg.mountainLevel - rolling);
+    out.push({ key: 'hill', role: 'hill', family: 'hill', clusterId: -1, x: x + 0.5, y: y + 0.8, rank: H[c], baseScale: 0.65 + 0.45 * lift, path: -1, pathPos: 0 });
   }
   return out;
 }
@@ -317,8 +337,11 @@ export function footBox(footprint: readonly [number, number], scale: number, x: 
   return { x0: x - (fw * scale) / 2, x1: x + (fw * scale) / 2, y0: y - fh * scale * 0.75, y1: y + fh * scale * 0.25 };
 }
 
-/** True if the footprint lies inside the map and covers no sea, lake or river cell centre. */
-export function footprintFits(hydro: HydrologyResult, footprint: readonly [number, number], scale: number, x: number, y: number, w: number): boolean {
+/** True if the footprint lies inside the map and covers no sea, lake, river or blocked cell centre. */
+export function footprintFits(
+  hydro: HydrologyResult, footprint: readonly [number, number], scale: number, x: number, y: number, w: number,
+  blocked: Uint8Array | null = null,
+): boolean {
   const b = footBox(footprint, scale, x, y);
   if (b.x0 < 0 || b.x1 > w || b.y0 < 0 || b.y1 > w) return false;
   for (let cy = Math.floor(b.y0); cy <= Math.min(w - 1, Math.floor(b.y1)); cy++) {
@@ -326,22 +349,51 @@ export function footprintFits(hydro: HydrologyResult, footprint: readonly [numbe
       const ccx = cx + 0.5, ccy = cy + 0.5;
       if (ccx < b.x0 || ccx > b.x1 || ccy < b.y0 || ccy > b.y1) continue;
       const c = cy * w + cx;
-      if (hydro.sea[c] || hydro.lakeId[c] || hydro.river[c]) return false;
+      if (hydro.sea[c] || hydro.lakeId[c] || hydro.river[c] || (blocked && blocked[c])) return false;
     }
   }
   return true;
 }
 
-/** Smooth value noise in [0,1] on a `cell`-sized lattice, from stateless hashes (no trig). */
-export function clumpDensity(s32: number, x: number, y: number, cell: number): number {
-  const fx = x / cell, fy = y / cell;
-  const ix = Math.floor(fx), iy = Math.floor(fy);
-  const tx = fx - ix, ty = fy - iy;
-  const sx = tx * tx * (3 - 2 * tx), sy = ty * ty * (3 - 2 * ty);
-  const v = (a: number, b: number) => hash01(s32, a, b, 61);
-  const top = v(ix, iy) + (v(ix + 1, iy) - v(ix, iy)) * sx;
-  const bot = v(ix, iy + 1) + (v(ix + 1, iy + 1) - v(ix, iy + 1)) * sx;
-  return top + (bot - top) * sy;
+/**
+ * Valley corridors (thung lũng): ground within one cell of a big river (flow ≥ 3 × the river
+ * threshold) from rolling ground upwards. No footprint may stand on it, so river valleys through
+ * the mountains stay open. Same cells as the "valley" region of the QA region map.
+ */
+export function valleyCorridor(hydro: HydrologyResult, cfg: WorldConfig): Uint8Array {
+  const w = cfg.size, n = w * w, H = hydro.height;
+  const out = new Uint8Array(n);
+  const big = 3 * hydro.riverThreshold;
+  for (let c = 0; c < n; c++) {
+    if (!hydro.river[c] || hydro.acc[c] < big) continue;
+    const x = c % w, y = (c - x) / w;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const xx = x + dx, yy = y + dy;
+      if (xx < 0 || yy < 0 || xx >= w || yy >= w) continue;
+      const b = yy * w + xx;
+      if (!hydro.sea[b] && !hydro.lakeId[b] && H[b] >= cfg.hillLevel - 0.14) out[b] = 1;
+    }
+  }
+  return out;
+}
+
+/** Chebyshev distance to mountain ground (H ≥ mountainLevel), capped at 255. */
+export function mountainDistance(hydro: HydrologyResult, cfg: WorldConfig): Uint8Array {
+  const w = cfg.size, n = w * w;
+  const d = new Uint8Array(n).fill(255);
+  const q: number[] = [];
+  for (let c = 0; c < n; c++) if (!hydro.sea[c] && hydro.height[c] >= cfg.mountainLevel) { d[c] = 0; q.push(c); }
+  for (let head = 0; head < q.length; head++) {
+    const c = q[head], x = c % w, y = (c - x) / w;
+    if (d[c] >= 254) continue;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const xx = x + dx, yy = y + dy;
+      if (xx < 0 || yy < 0 || xx >= w || yy >= w) continue;
+      const b = yy * w + xx;
+      if (d[b] > d[c] + 1) { d[b] = d[c] + 1; q.push(b); }
+    }
+  }
+  return d;
 }
 
 /** Cluster of the nearest peak within 12 cells, or -1. Ties break by cluster id. */
@@ -356,27 +408,6 @@ function nearestCluster(ridges: RidgeResult, x: number, y: number, w: number): n
     }
   }
   return best;
-}
-
-/** Chebyshev distance to the nearest ridge cell, capped at 255. */
-function ridgeDistance(ridge: Uint8Array, w: number): Uint8Array {
-  const n = w * w;
-  const d = new Uint8Array(n).fill(255);
-  const q: number[] = [];
-  for (let i = 0; i < n; i++) if (ridge[i]) { d[i] = 0; q.push(i); }
-  for (let head = 0; head < q.length; head++) {
-    const c = q[head];
-    const cx = c % w, cy = (c - cx) / w;
-    for (let dy = -1; dy <= 1; dy++) {
-      for (let dx = -1; dx <= 1; dx++) {
-        const nx = cx + dx, ny = cy + dy;
-        if (nx < 0 || ny < 0 || nx >= w || ny >= w) continue;
-        const nb = ny * w + nx;
-        if (d[nb] > d[c] + 1) { d[nb] = d[c] + 1; q.push(nb); }
-      }
-    }
-  }
-  return d;
 }
 
 export function canonicalCompare(a: Candidate, b: Candidate): number {
@@ -394,6 +425,7 @@ export function composeStamps(
 ): SceneComposition {
   const w = cfg.size;
   const s32 = seedToU32(seed);
+  const H = hydro.height;
   const sorted = [...candidates].sort(canonicalCompare);
 
   interface Box extends FootBox { cluster: number }
@@ -401,11 +433,13 @@ export function composeStamps(
   const accepted: Candidate[] = [];
 
   const finalScale = (c: Candidate) => stampScale(s32, c.key, c.x, c.y, c.baseScale);
+  const corridor = valleyCorridor(hydro, cfg);
   for (const cand of sorted) {
     const fp = logic[cand.key].footprint;
-    // Test the scale the stamp will actually have, so the jitter cannot push it onto water.
+    // Test the scale the stamp will actually have, so the jitter cannot push it onto water or
+    // into a valley corridor.
     const scale = finalScale(cand);
-    if (!footprintFits(hydro, fp, scale, cand.x, cand.y, w)) continue;
+    if (!footprintFits(hydro, fp, scale, cand.x, cand.y, w, corridor)) continue;
     const box: Box = { ...footBox(fp, scale, cand.x, cand.y), cluster: cand.clusterId };
     // Limit ground overlap: same-cluster neighbours may overlap more than strangers.
     let clash = false;
@@ -415,7 +449,9 @@ export function composeStamps(
       if (ix <= 0 || iy <= 0) continue;
       const inter = ix * iy;
       const minArea = Math.min((b.x1 - b.x0) * (b.y1 - b.y0), (box.x1 - box.x0) * (box.y1 - box.y0));
-      const limit = cand.role === 'main' || cand.role === 'shoulder' ? 0.9 : b.cluster === box.cluster && box.cluster >= 0 ? 0.5 : 0.2;
+      const limit = cand.role === 'main' || cand.role === 'shoulder' ? 0.9
+        : cand.role === 'summit' ? SUMMIT_OVERLAP
+          : b.cluster === box.cluster && box.cluster >= 0 ? 0.5 : 0.2;
       if (inter / minArea > limit) { clash = true; break; }
     }
     if (clash) continue;
@@ -443,13 +479,41 @@ export function composeStamps(
     accepted[i] = { ...best, role: 'main' };
   }
 
+  // Ink layer (M9) from two cues that both say how far a stamp is from a viewer in the south:
+  //  - aspect: a face dropping towards the south is the front of its ridge (+1), a face dropping
+  //    north lies behind the crest (-1), crests and level ground 0;
+  //  - place in the massif: southern third +1, northern third -1, middle 0.
+  // Their sum's sign is the layer: near (+1), middle (0) or far (-1). The main peak is near, the
+  // ends of spurs fade (far), hills and stamps outside a massif use the aspect alone.
+  const extent = new Map<number, [number, number]>();
+  for (const c of accepted) {
+    if (c.clusterId < 0 || c.key === 'hill') continue;
+    const e = extent.get(c.clusterId);
+    if (!e) extent.set(c.clusterId, [c.y, c.y]);
+    else { e[0] = Math.min(e[0], c.y); e[1] = Math.max(e[1], c.y); }
+  }
+  const toneOf = (c: Candidate): number => {
+    if (c.role === 'main') return 1;
+    if (c.role === 'spur' && c.pathPos === 0) return -1;
+    if (c.key === 'hill') return 0;
+    const x = Math.min(w - 1, Math.max(0, Math.floor(c.x)));
+    const y = Math.min(w - 1, Math.max(0, Math.floor(c.y - 1)));
+    const drop = H[Math.max(0, y - 2) * w + x] - H[Math.min(w - 1, y + 2) * w + x];
+    let score = drop > ASPECT_DROP ? 1 : drop < -ASPECT_DROP ? -1 : 0;
+    const e = c.clusterId >= 0 ? extent.get(c.clusterId) : undefined;
+    if (e && e[1] - e[0] > 1e-9) {
+      const t = (c.y - e[0]) / (e[1] - e[0]);
+      score += t >= 2 / 3 ? 1 : t <= 1 / 3 ? -1 : 0;
+    }
+    return Math.sign(score);
+  };
+
   // Variant assignment over the canonical order. The terrain role fixes the family; inside it a
   // position hash picks the variant, with anti-repetition: no neighbour with the same variant and
   // flip, and no variant above 25% of its (cluster, key) group once the group has 8+. When the
   // family has no variant that passes, the next family of FAMILY_FALLBACK is tried; the strict
   // pass (both rules) runs over the whole fallback chain before the relaxed pass (neighbour rule).
   const stamps: StampInstance[] = [];
-  const H = hydro.height;
   const groupKey = (c: { clusterId: number; key: string }) => `${c.clusterId}|${c.key}`;
   const groupSize = new Map<string, number>();
   for (const c of accepted) if (c.clusterId >= 0) groupSize.set(groupKey(c), (groupSize.get(groupKey(c)) ?? 0) + 1);
@@ -508,14 +572,14 @@ export function composeStamps(
     }
     const variant = chosen;
     counts[variant]++;
-    const r2 = hash01(s32, qx, qy, salt + 3), r3 = hash01(s32, qx, qy, salt + 4);
+    const r2 = hash01(s32, qx, qy, salt + 3);
     stamps.push({
       id: 0,
       key: cand.key, role: cand.role, clusterId: cand.clusterId, x: cand.x, y: cand.y,
       variant, family: cand.family, flip,
       scale: finalScale(cand),
       squash: Math.fround(0.93 + 0.14 * r2),
-      tone: r3 < 0.25 ? -1 : r3 > 0.8 ? 1 : 0,
+      tone: toneOf(cand),
       path: cand.path, pathPos: cand.pathPos,
     });
   }

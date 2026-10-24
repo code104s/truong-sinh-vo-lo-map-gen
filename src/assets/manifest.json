@@ -36,7 +36,7 @@
       "logic": {
         "footprint": [7.56, 3.36],
         "variants": 12,
-        "variantFamilies": ["pinnacle", "cliff", "pinnacle", "cliff", "pinnacle", "flat", "cliff", "pinnacle", "cliff", "pinnacle", "cliff", "pinnacle"]
+        "variantFamilies": ["pinnacle", "cliff", "pinnacle", "cliff", "pinnacle", "flat", "cliff", "flat", "cliff", "pinnacle", "cliff", "pinnacle"]
       },
       "visual": {
         "layer": 2,
@@ -59,7 +59,7 @@
       "logic": {
         "footprint": [5.6, 2.52],
         "variants": 12,
-        "variantFamilies": ["range", "hill", "flat", "range", "cliff", "hill", "range", "cliff", "hill", "range", "cliff", "range"]
+        "variantFamilies": ["range", "flat", "flat", "range", "cliff", "pinnacle", "range", "cliff", "flat", "range", "cliff", "range"]
       },
       "visual": {
         "layer": 2,

@@ -3,7 +3,7 @@
 import type { Manifest } from '../assets/manifestTypes';
 import type { WorldData } from '../worldgen/index';
 import type { StampInstance } from '../worldgen/composition';
-import { footBox } from '../worldgen/composition';
+import { footBox, footprintFits, isSummitGround, summitFamily, valleyCorridor } from '../worldgen/composition';
 
 export function isNeighbour8(a: number, b: number, w: number): boolean {
   const ax = a % w, ay = (a - ax) / w, bx = b % w, by = (b - bx) / w;
@@ -462,4 +462,81 @@ export function lakeShapes(world: WorldData): LakeShape[] {
     }
     return { id: L.id, kind: L.kind, area: sh.area, elongation: sh.elongation, solidity: sh.solidity, catchment: L.catchment, armCells };
   });
+}
+
+// ---------- Mountain structure (Phase 2, B4: M4–M6, M9) ----------
+
+export interface StructureMetrics {
+  stamps: number;
+  /** M4: stamps whose ground point does not come from a terrain feature (peak, ridge path, knob or crest, knoll). */
+  notFromTerrain: number;
+  /** M5: stamps whose variant family is the family the terrain role asked for. */
+  familyMatch: number;
+  /** M5: summits (main, guest, minor) whose asked family differs from the classifier recomputed here. */
+  classifierMismatch: number;
+  /** M6: footprints touching a valley corridor. */
+  footprintsInCorridor: number;
+  /** M9: massifs with both far and near stamps, and those whose far layer lies north of the near one. */
+  layeredMassifs: number;
+  farNorthOfNear: number;
+}
+
+function isLocalMax(H: Float32Array, w: number, x: number, y: number, r: number): boolean {
+  if (x < 0 || y < 0 || x >= w || y >= w) return false;
+  const c = y * w + x;
+  for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+    const nx = x + dx, ny = y + dy;
+    if ((dx === 0 && dy === 0) || nx < 0 || ny < 0 || nx >= w || ny >= w) continue;
+    const nb = ny * w + nx;
+    if (H[nb] > H[c] || (H[nb] === H[c] && nb < c)) return false;
+  }
+  return true;
+}
+
+export function structureMetrics(world: WorldData, manifest: Manifest): StructureMetrics {
+  const { hydro, ridges, config: cfg } = world;
+  const w = cfg.size, H = hydro.height;
+  const stamps = world.composition.stamps;
+  const corridor = valleyCorridor(hydro, cfg);
+  const peakCells = new Set(ridges.peaks.map((p) => p.cell));
+  const onPath = (s: StampInstance) => s.path >= 0 && s.path < ridges.paths.length;
+  let notFromTerrain = 0, familyMatch = 0, classifierMismatch = 0, footprintsInCorridor = 0;
+  for (const s of stamps) {
+    const fx = Math.floor(s.x);
+    let source = true;
+    if (s.role === 'summit') source = isSummitGround(H, w, fx, Math.floor(s.y - 1.1 + 1e-6));
+    else if (s.role === 'hill') source = isLocalMax(H, w, fx, Math.floor(s.y - 0.8 + 1e-6), 1);
+    else if (s.role === 'ridge' || s.role === 'spur') source = onPath(s);
+    else if (s.role === 'guest') source = peakCells.has(Math.floor(s.y - 0.8 + 1e-6) * w + fx);
+    if (!source) notFromTerrain++;
+    const logic = manifest.assets[s.key].logic;
+    if (logic.variantFamilies[s.variant] === s.family) familyMatch++;
+    let cell = -1;
+    if (s.role === 'summit') cell = Math.floor(s.y - 1.1 + 1e-6) * w + fx;
+    else if (s.role === 'guest') cell = Math.floor(s.y - 0.8 + 1e-6) * w + fx;
+    else if (s.role === 'main') {
+      for (const dy of [1.2, 2, 0.6]) {
+        const c = Math.floor(s.y - dy + 1e-6) * w + fx;
+        if (peakCells.has(c)) { cell = c; break; }
+      }
+    }
+    if (cell >= 0 && summitFamily(H, hydro.sea, w, cell % w, Math.floor(cell / w)) !== s.family) classifierMismatch++;
+    if (!footprintFits(hydro, logic.footprint, s.scale, s.x, s.y, w, corridor)
+      && footprintFits(hydro, logic.footprint, s.scale, s.x, s.y, w)) footprintsInCorridor++;
+  }
+  const layers = new Map<number, { far: number[]; near: number[] }>();
+  for (const s of stamps) {
+    if (s.clusterId < 0 || s.key === 'hill' || s.tone === 0) continue;
+    const l = layers.get(s.clusterId) ?? { far: [], near: [] };
+    (s.tone < 0 ? l.far : l.near).push(s.y);
+    layers.set(s.clusterId, l);
+  }
+  let layeredMassifs = 0, farNorthOfNear = 0;
+  const mean = (a: number[]) => a.reduce((x, y) => x + y, 0) / a.length;
+  for (const l of layers.values()) {
+    if (!l.far.length || !l.near.length) continue;
+    layeredMassifs++;
+    if (mean(l.far) < mean(l.near)) farNorthOfNear++;
+  }
+  return { stamps: stamps.length, notFromTerrain, familyMatch, classifierMismatch, footprintsInCorridor, layeredMassifs, farNorthOfNear };
 }

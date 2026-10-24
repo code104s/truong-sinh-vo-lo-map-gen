@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { composeStamps, generateCandidates, stampsInChunk, type StampInstance } from '../src/worldgen/composition';
 import { sfc32 } from '../src/core/rng';
-import { compositionMetrics } from '../src/qa/metrics';
+import { compositionMetrics, regionDensity, REGIONS, structureMetrics, type Region } from '../src/qa/metrics';
 import { QA_SEEDS, logic, manifest, world } from './worlds';
 
 const key = (s: StampInstance) => JSON.stringify(s);
@@ -64,6 +64,43 @@ describe('composition quality metrics (V2–V4) on 20 QA seeds', () => {
   });
 
   // V6 (25–60% of land left bare) was retired by the owner in the Phase 2 brief in favour of a
-  // per-region density review; the per-region criteria M7/M8 replace this test with B4c. At B2
-  // (lakes only) tsvl-04 sits at 0.6006, see docs/worldgen/phase2/02-worldgen-v2.md.
+  // per-region density review: M7/M8 below.
+});
+
+// Phase 2 wave 2, B4 (worldgen 2.0.0): massif structure. Criteria M4–M9 in
+// docs/worldgen/phase2/02-worldgen-v2.md; M1–M3 are V2–V4 above.
+describe('mountain structure (M4–M9) on 20 QA seeds', () => {
+  const all = QA_SEEDS.map((s) => ({ seed: s, m: structureMetrics(world(s), manifest), d: regionDensity(world(s), manifest) }));
+  const sum = (f: (r: (typeof all)[number]) => number) => all.reduce((a, r) => a + f(r), 0);
+
+  it('M4: at most 30% of stamps come from a regular lattice (every stamp sits on a terrain feature)', () => {
+    expect(sum((r) => r.m.notFromTerrain) / sum((r) => r.m.stamps)).toBeLessThanOrEqual(0.3);
+    expect(sum((r) => r.m.notFromTerrain)).toBe(0);
+  });
+
+  it('M5: summit families match the terrain classifier; variants come from the asked family', () => {
+    expect(sum((r) => r.m.classifierMismatch)).toBe(0);
+    expect(sum((r) => r.m.familyMatch) / sum((r) => r.m.stamps)).toBeGreaterThanOrEqual(0.9);
+  });
+
+  it.each(all)('$seed: M6 no footprint in a valley corridor', ({ m }) => {
+    expect(m.footprintsInCorridor).toBe(0);
+  });
+
+  it('M7: mean coverage per region within the agreed bands', () => {
+    const mean = (k: Region) => all.reduce((a, r) => a + r.d.coverage[k], 0) / all.length;
+    const bands: Record<Region, [number, number]> = {
+      mountain: [0.7, 0.95], plateau: [0.4, 0.85], foothill: [0.25, 0.6], valley: [0, 0.12], plain: [0, 0.15], coast: [0, 0.12],
+    };
+    const bad = REGIONS.filter((k) => mean(k) < bands[k][0] || mean(k) > bands[k][1]).map((k) => `${k} ${mean(k).toFixed(3)}`);
+    expect(bad).toEqual([]);
+  });
+
+  it.each(all)('$seed: M8 plain coverage at most 25%', ({ d }) => {
+    expect(d.coverage.plain).toBeLessThanOrEqual(0.25);
+  });
+
+  it('M9: far ink layer lies north of the near layer in at least 90% of layered massifs', () => {
+    expect(sum((r) => r.m.farNorthOfNear) / sum((r) => r.m.layeredMassifs)).toBeGreaterThanOrEqual(0.9);
+  });
 });
