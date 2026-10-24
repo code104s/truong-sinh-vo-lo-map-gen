@@ -2,13 +2,7 @@
   "version": 1,
   "palette": {
     "paper": "#ece4d2",
-    "ink": [
-      "#1c1a16",
-      "#3a362e",
-      "#625c51",
-      "#968f80",
-      "#c9c1b0"
-    ],
+    "ink": ["#1c1a16", "#3a362e", "#625c51", "#968f80", "#c9c1b0"],
     "indigo": "#8a9fa8",
     "green": "#a3b096",
     "ochre": "#c2a682",
@@ -17,22 +11,14 @@
   "assets": {
     "mountain.main": {
       "logic": {
-        "footprint": [
-          10.4,
-          4.55
-        ],
-        "variants": 12
+        "footprint": [10.4, 4.55],
+        "variants": 12,
+        "variantFamilies": ["range", "cliff", "range", "pinnacle", "range", "cliff", "flat", "range", "pinnacle", "cliff", "range", "pinnacle"]
       },
       "visual": {
         "layer": 2,
-        "anchor": [
-          0.5,
-          0.94
-        ],
-        "visualSize": [
-          11.7,
-          13.0
-        ],
+        "anchor": [0.5, 0.94],
+        "visualSize": [11.7, 13.0],
         "lod": {
           "minZoom": 0
         },
@@ -41,43 +27,21 @@
           "generator": "mountain.v1",
           "params": {
             "steep": 1.25,
-            "cun": 1.0,
-            "families": [
-              "range",
-              "cliff",
-              "range",
-              "pinnacle",
-              "range",
-              "cliff",
-              "flat",
-              "range",
-              "pinnacle",
-              "cliff",
-              "range",
-              "pinnacle"
-            ]
+            "cun": 1.0
           }
         }
       }
     },
     "mountain.tall": {
       "logic": {
-        "footprint": [
-          7.56,
-          3.36
-        ],
-        "variants": 12
+        "footprint": [7.56, 3.36],
+        "variants": 12,
+        "variantFamilies": ["pinnacle", "cliff", "pinnacle", "cliff", "pinnacle", "flat", "cliff", "pinnacle", "cliff", "pinnacle", "cliff", "pinnacle"]
       },
       "visual": {
         "layer": 2,
-        "anchor": [
-          0.5,
-          0.94
-        ],
-        "visualSize": [
-          8.4,
-          9.1
-        ],
+        "anchor": [0.5, 0.94],
+        "visualSize": [8.4, 9.1],
         "lod": {
           "minZoom": 0
         },
@@ -86,43 +50,21 @@
           "generator": "mountain.v1",
           "params": {
             "steep": 1.1,
-            "cun": 0.8,
-            "families": [
-              "pinnacle",
-              "cliff",
-              "pinnacle",
-              "cliff",
-              "pinnacle",
-              "flat",
-              "cliff",
-              "pinnacle",
-              "cliff",
-              "pinnacle",
-              "cliff",
-              "pinnacle"
-            ]
+            "cun": 0.8
           }
         }
       }
     },
     "mountain.low": {
       "logic": {
-        "footprint": [
-          5.6,
-          2.52
-        ],
-        "variants": 12
+        "footprint": [5.6, 2.52],
+        "variants": 12,
+        "variantFamilies": ["range", "hill", "flat", "range", "cliff", "hill", "range", "cliff", "hill", "range", "cliff", "range"]
       },
       "visual": {
         "layer": 2,
-        "anchor": [
-          0.5,
-          0.94
-        ],
-        "visualSize": [
-          6.3,
-          5.88
-        ],
+        "anchor": [0.5, 0.94],
+        "visualSize": [6.3, 5.88],
         "lod": {
           "minZoom": 0
         },
@@ -131,65 +73,28 @@
           "generator": "mountain.v1",
           "params": {
             "steep": 0.85,
-            "cun": 0.55,
-            "families": [
-              "range",
-              "hill",
-              "flat",
-              "range",
-              "cliff",
-              "hill",
-              "range",
-              "cliff",
-              "hill",
-              "range",
-              "cliff",
-              "range"
-            ]
+            "cun": 0.55
           }
         }
       }
     },
     "hill": {
       "logic": {
-        "footprint": [
-          3.6,
-          1.44
-        ],
-        "variants": 12
+        "footprint": [3.6, 1.44],
+        "variants": 12,
+        "variantFamilies": ["hill", "hill", "hill", "hill", "hill", "hill", "hill", "hill", "hill", "hill", "hill", "hill"]
       },
       "visual": {
         "layer": 2,
-        "anchor": [
-          0.5,
-          0.92
-        ],
-        "visualSize": [
-          4.08,
-          2.88
-        ],
+        "anchor": [0.5, 0.92],
+        "visualSize": [4.08, 2.88],
         "lod": {
           "minZoom": 0
         },
         "source": {
           "type": "procedural",
           "generator": "hill.v1",
-          "params": {
-            "families": [
-              "hill",
-              "hill",
-              "hill",
-              "hill",
-              "hill",
-              "hill",
-              "hill",
-              "hill",
-              "hill",
-              "hill",
-              "hill",
-              "hill"
-            ]
-          }
+          "params": {}
         }
       }
     }

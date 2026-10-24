@@ -1,206 +1,206 @@
 {
   "worldgenVersion": "2.0.0",
   "config": "hillLevel=0.44;jitter=0.0001;lakeCatchmentRatio=4;lakeSaddleDepth=0.005;maxLakeArea=0.012;minLakeArea=12;minLakeDepth=0.01;minPeakRelief=0.06;mountainLevel=0.56;passLevel=0.52;peakRadius=4;ridgeFraction=0.006;ridgeOverlap=0.32;riverFraction=0.008;seaLevel=0.25;size=128",
-  "logic": "{\"hill\":{\"footprint\":[3.6,1.44],\"variants\":12},\"mountain.low\":{\"footprint\":[5.6,2.52],\"variants\":12},\"mountain.main\":{\"footprint\":[10.4,4.55],\"variants\":12},\"mountain.tall\":{\"footprint\":[7.56,3.36],\"variants\":12}}",
+  "logic": "{\"hill\":{\"footprint\":[3.6,1.44],\"variants\":12,\"variantFamilies\":[\"hill\",\"hill\",\"hill\",\"hill\",\"hill\",\"hill\",\"hill\",\"hill\",\"hill\",\"hill\",\"hill\",\"hill\"]},\"mountain.low\":{\"footprint\":[5.6,2.52],\"variants\":12,\"variantFamilies\":[\"range\",\"hill\",\"flat\",\"range\",\"cliff\",\"hill\",\"range\",\"cliff\",\"hill\",\"range\",\"cliff\",\"range\"]},\"mountain.main\":{\"footprint\":[10.4,4.55],\"variants\":12,\"variantFamilies\":[\"range\",\"cliff\",\"range\",\"pinnacle\",\"range\",\"cliff\",\"flat\",\"range\",\"pinnacle\",\"cliff\",\"range\",\"pinnacle\"]},\"mountain.tall\":{\"footprint\":[7.56,3.36],\"variants\":12,\"variantFamilies\":[\"pinnacle\",\"cliff\",\"pinnacle\",\"cliff\",\"pinnacle\",\"flat\",\"cliff\",\"pinnacle\",\"cliff\",\"pinnacle\",\"cliff\",\"pinnacle\"]}}",
   "seeds": {
     "tsvl-01": {
-      "worldHash": "d4cb136bf4a027c3b2d61fe38b4adcc4a5198e9ad17d72d83c93eb566fbd72b1",
+      "worldHash": "b3fb7c320e765da0b0a237c03cf9706331446704e5fc1b7c132a330d9ff016fe",
       "stages": {
-        "header": "3a607b18458df41ceb5b8bfec0dabc9690e397ddc7cfa68b161086598d2c8aa5",
+        "header": "d2c5b19b00ef149bb73cf73e9cffe781b12ae97b635c619508ef77a075fb42ea",
         "terrain": "7cf93b1cb136b94398b934eea3716145408f2b0e6cf0a8051ba7c96796675955",
         "hydrology": "fa08cd39e69fdd3c04e21f7a8c2af6c06f32bfb06d54416143f59ca6ea0b04f0",
         "ridges": "8bd800fc90dc85bbd4351bb6306d7a6b8e9bb7816524b6c824c8c45abfeeb41e",
-        "composition": "8ed8ebfef92d5e908ececbee5991e782742404aaf838e9ba482d2e4082b53710"
+        "composition": "fd7d45bd91fd456d8446d99010273da363be370bfb39b80b11c5f6e1919c2c5c"
       }
     },
     "tsvl-02": {
-      "worldHash": "aec07baef9539d1dc4014e4a3fdcf15e007e67a9c8d11005e7bed415302fe470",
+      "worldHash": "b66d5da810ed28a78d6db048962a7a4ff7704ac7c93fe36249989add7a0568f2",
       "stages": {
-        "header": "71da3c01a0b1da6dec352d63236a754827e5aa317c8532f2ed16c75783bb9331",
+        "header": "1003119f33fa34f5347438e50906c0531f2fa8036d161fe9094f02bf40fb0cc3",
         "terrain": "277907cc562cf61fd086292b80a169f0025e0728bd84ac896d236792f642eb36",
         "hydrology": "01e51d2a9c2592184e176435b1d8a26431600bd037810dccd8f460eef7b6c673",
         "ridges": "ebb59b401753f6c01f57e898a6e2b3b048ea9e1e80946023b56f6790d725048e",
-        "composition": "36056baeebfa425156fecb98b334fb849a964739af3e1c1f676f5a6f3a3889bd"
+        "composition": "5541e894ff739f2fc806da3828567ffe9f844f564f9e74a71ce75c903c715303"
       }
     },
     "tsvl-03": {
-      "worldHash": "e27c8b03c6cb0ae0784fb776e23923367f45c3abe2310c2bf9b7c95072fe856e",
+      "worldHash": "6ece57c1a6c9cb1c91e940f6daf94f53fffa26d4fcf6569bf50de648f62139e4",
       "stages": {
-        "header": "0ab568a4b46bf0a8e532f248653e7565254e623fd1c1ad9b0075f0f059f00bd3",
+        "header": "3630ca77bd5fd98d735c7b3c6bf362b5574cd8b674124c0d23ef11fc7b7794f8",
         "terrain": "2e9bf4260641f66fce3d788d0aa64d53cd6f74fba520d65ba14995168d2dfb99",
         "hydrology": "1da39c843aeebb59d33d0f8691b9c234b048f7f7d862bb9a69b6ee6a6ff7700d",
         "ridges": "fba40fcc917366c41a661531599bda8db7bea5ca14d55489d42490105eff19d4",
-        "composition": "10dbf72c43e4998146d7205bf72f710e4a93ea70e24d852c28818edd95366c3c"
+        "composition": "aba63a60d496878cd4f96f6ee859c22dbf75b4ecf3412bcef992a52616ef18e7"
       }
     },
     "tsvl-04": {
-      "worldHash": "54c3f58998b08d5818100e4f0b01f9b279adf019aa24fa73796b9c399e857ac0",
+      "worldHash": "dd7e1b6e6773074e104a9ff06869e4be7ff6d74b80bad45b1843dd10a6d2386a",
       "stages": {
-        "header": "4047db21477e934fefe28b5211fa0fe5f29426cc44fe0cc9f21a842b91e0d904",
+        "header": "d7eeab8bb66f8919de59f8b1f35cdc50a8a32c03ff4adae9455940687b29871e",
         "terrain": "e84022e33a163e6377305c7e132159dd47bad0e23e47637e14f6294ee080bdeb",
         "hydrology": "a28dec78af8560cc4a2e9d073282ce9eb44a90664496e17262eaa738549d8afb",
         "ridges": "e7174ef3353f3a935a7d5f90233109e416f05dab79fda81fdb7d21e94fc37d2b",
-        "composition": "8df10c201af4c3a0b06fb5f7bad13e6b4be4a31917d613ce695adc6a321e6448"
+        "composition": "cb33aa140c114bc83d9cd44c093a9f952aa5698c4d7c6a5a32d135d299dbf82b"
       }
     },
     "tsvl-05": {
-      "worldHash": "649c046750cc14fcc29bc1778a041bff342666055962c63a839261dc72bc9784",
+      "worldHash": "e2117a2231d0376539ff09a8b6f2c46c7cb329dd3e162e2cbca177cff0ad74a2",
       "stages": {
-        "header": "a10a980eaef235edbd4aa62593645596d65d39a8a1325f144b4f984465ad66ac",
+        "header": "67042e417a5d894d92fd4fdd5a369358be0cc4cba69fb207f0e89d99ea26201b",
         "terrain": "000a28986e1ced65c05a9fc9f5dcb0e7b815beb55a78d08614ef4e90178cf968",
         "hydrology": "d38c4beedaa9292ef088ccb55327685733afdb48e15a6d94337aac0069857a59",
         "ridges": "e512df9de3c583208873f3890ab1353a99605daabca0c1693f6ffaec5987d366",
-        "composition": "8e40f88baa29d92c265ffd8b697fb37ea6273914076d981b35d5f058fe96b427"
+        "composition": "04377ba7a8e7bda4e293894291bc5bac86332051471b489d0c62838a14da2318"
       }
     },
     "tsvl-06": {
-      "worldHash": "4ab5cd16965aa476586e50642db21916a276a302c40256895ad38958882a7a43",
+      "worldHash": "86b436e3fbe2b2aafc24cec9ce2097128e3a6ce316ab8738315591f7f4f10181",
       "stages": {
-        "header": "db43283e039f7f7611264a9b8b9c101a2e052ce7d91c0c151b21f0af7aacf2b7",
+        "header": "13cb176a5e809f06b7d3fee6a2ef7d6c830c1cb51c82f37916548812de7cae83",
         "terrain": "2381b087aa178b5d4f17729e360899731c162ef788cc1fc1bea1d8ce6e875bc5",
         "hydrology": "915287221aa54b297f09ef7f33b25ca4649a9a0aacb38ab5f959910bb51c5017",
         "ridges": "3925bc676d1973990b54c12072a3650d1cf1ed157da1b2775db69545c09cb9f1",
-        "composition": "c2293960cac524df24d1a2bd54803c4013bb6093d1fe617dccabd2f16aab616f"
+        "composition": "d11a30527ca7d118cd1ca1ebbbe593a2823033df0064c3af008a23c4e9966636"
       }
     },
     "tsvl-07": {
-      "worldHash": "0fe907102838b34a176743a45ba0e6390462715a71dcc9cab6c72c415471878a",
+      "worldHash": "368dbe3aee82c825b6e97652e6c7c8863b87b5b128888020ea4e32f4c8b32345",
       "stages": {
-        "header": "ec34c0d44689ed9e89be9c0a344eae66c78cddcfa4fe559f40762e55d087180a",
+        "header": "2cad2690c6d18f2e88287bb9fcc5de2a057535cc068592b28bcc6458e5035aa4",
         "terrain": "702bdba9750c1114e4690743c7b6289ab36b59e05e84391be023b4d79c60c98a",
         "hydrology": "a758571e1541cd0ab39e55deeca3c417b911ff99d6b25e8664862d2ef1dd2ec0",
         "ridges": "438b1e399b6ffc94c01a68e43491d4daa75aa3437be346266192d1484def7426",
-        "composition": "51821e1439b4b91f3fe48d06573abe02e8bbcb0f2ffea2eee097fb4f22482188"
+        "composition": "8941b74c52a46055f0c46f0b2ea2b8e40128d0edb21ad9237d9e08afb5f74b2c"
       }
     },
     "tsvl-08": {
-      "worldHash": "9cfb3c98b416b1297480d9f9cc9e7b57d1af88529f8497cf55bb2a55b7b2f4cb",
+      "worldHash": "c0be15402c613bd656e763f08bec4c86ef506a78850ba9b99c389dfbe33fae5f",
       "stages": {
-        "header": "90a0da27f4838df214b60563f84ed271a3a7812a8a84682aaf47898f569db986",
+        "header": "624df214bbc78353af58e04078789b3fc70e94514e408b4c071bbae439083951",
         "terrain": "544753d7b5df22f9fc47e06f5d13e44f49ae084336c15d1eda99b0c9c389c511",
         "hydrology": "70778fc55f88b20e5f8f0fed1ae03c4e9c056b0e9de041ccfccf9031e3ad99dc",
         "ridges": "432f44a46f5306c687f514c1e1b09653ef7182976cd66a06a40f07d9e7bb6e3e",
-        "composition": "2f6c10a2d9bd3bfd0de860daa4fd08812fd8b67f69f333c673d248f0c9548e5f"
+        "composition": "96d334751ab201c7d18c09e7e63e79125627a08e3123a84e8f9eb57fb5367eb9"
       }
     },
     "tsvl-09": {
-      "worldHash": "58c662b0933f7de195b024a5397352d9da8292703c7a7b1ec3892826d48a862f",
+      "worldHash": "a534332c1a1263e182c107be44db6d77d6d86d4d804f1717f7b20559a4849d53",
       "stages": {
-        "header": "8c0206168dd30bdd43f71f05f0d4718631d5ff926d0cde341487e115fb982ef0",
+        "header": "20c91849fea123dec5ac28c35580f4d6dd0220118764888ea1e318c3ef7aa705",
         "terrain": "5ef8f5c9955037c81453795673badb184a6f32e2340b6ac531b39e1777ce3d30",
         "hydrology": "803d6d90d05c149dab6283492eebe5f68bf5c43788ead96c3b28f7b401e7c6df",
         "ridges": "502081b0b1b9133f756de6b10f3c9b51bfebf270f83735ca01831bcc800b39e9",
-        "composition": "da755cb16a37a1e2393cb40857c156777369ffd7662a7fc5ac3e9c5c41393622"
+        "composition": "70eb5bca6d3e53600da8d13a0acfc5388c545fbd714d78bbc21510455c82a573"
       }
     },
     "tsvl-10": {
-      "worldHash": "4c9b62ef7af9539dda63a81599b54384a60297ea954bbb59d8fcb5b77849a476",
+      "worldHash": "c511d014935881b5e1db5ddcf1a9d7fb7b1d17246ee41102570554962a0522bd",
       "stages": {
-        "header": "2ef3ac9c7c7a90f9548ea7c203fcb738e790e3e5c8e939209f86a8af7b29aba8",
+        "header": "935b55ca8de94e40784df5a7fae5d29a6e9c2698f6b07627c7bac51b5bde5f08",
         "terrain": "66f4f06d395d54ba13875e40514f4e36225a8be562a857e6632f21b255468113",
         "hydrology": "93cf61faa39218ccf612fc9f0851684be3e44aa08d4ecb106601b5e4580a4a73",
         "ridges": "59d2672cf06f5561dca1720f240d709f7142e7b9a2c3d1003bd99413d3fc41b4",
-        "composition": "9ff2b796ca24303ad4ebde0498af27304fa7e81055d60ec8e838baf01045c1a1"
+        "composition": "3ebc2415e5aa200d7948bf0a02db572b2a0b8f6c053e2597fd2f9ea06b8960f5"
       }
     },
     "tsvl-11": {
-      "worldHash": "9dcf4602a357d301913d79bdfd1c7e8e340d185006ddfc9871ddbe26aa6e7e15",
+      "worldHash": "cc5325f5674431ff14f484c0fa68673194fa968e5db50735bfa5fa711dfed970",
       "stages": {
-        "header": "9bf5ea1604eb51e3476658fb88c4fa805080af646cc568dc5ba548200afb4c16",
+        "header": "f8511a07a6c65b4abf28d25b821a01ab4b6da34604f877c9bbc3f59396e28127",
         "terrain": "64c45004f931b95c8d09cd2bcf56b7e2f98625c2ad0c2eb2a7d9503757e03b9b",
         "hydrology": "41dab9991479af0ecf4016905438513153253ef585fb1806b7aef556998e4bbe",
         "ridges": "4d7364b2b55bfbc3910a4b42c719a1ef8bb0c8db2021955c6f55727eff845ca2",
-        "composition": "eee8a25bce800cff572deca6f0c4308d937bfb1318d5e9dbd1cc2319220be108"
+        "composition": "e0eaae8a8c56069cea6a52d4027ff9cd9a278e8580710d7f78b57ad3aad37457"
       }
     },
     "tsvl-12": {
-      "worldHash": "b392001c380947a5c6fc626ccf473582a5122de42f8809468c95c24dc6c5e79a",
+      "worldHash": "a2ad68d82e0365ce9cb1cc1b6d97bb47da0f48c23e96221137639435a6fc3ec8",
       "stages": {
-        "header": "a5ba030ec849c7f5b529f76c2943b961363dbc76382f87a3bc3df912b4be0f72",
+        "header": "818f2db97f5caf8eead376ad14387422febb2d6cefd176893527833d5b7af693",
         "terrain": "9c76e250d2a09613575651bb84eb4d49493d96df5f217f5c75196a5dd9f9da0c",
         "hydrology": "4e6035d6373e7321ed1fb922f8fb54c7e7c920c9612a39bff39b710ac70cf4cf",
         "ridges": "fbcbb01de3838789cb8608f00575056c102df23dc64a59af1dd69f34b183a84e",
-        "composition": "a635013094acd4df2922ed0e7d177c78e0de12b415ee3cafba18ca6e60e71458"
+        "composition": "31f0a0c43417a83c4a82c3a7da30b925e2bb063c7f7833e138ff220af002511d"
       }
     },
     "tsvl-13": {
-      "worldHash": "8e2686bbe11e6d1e517a5bbe33aa995516a25d2fd78c2d9912ee3f4e7ab60fb4",
+      "worldHash": "6f52e6fb6a6521cf7a3bb5f3460cd864b88abb2b2e6d9a49eaed224d497afc55",
       "stages": {
-        "header": "65d977526eb0a5ff8e328c2928de8f4968dfa23b4059bc2192547c507fda618c",
+        "header": "8f84a7d13d00e3c80e32fc2b68e65bf0f59d338ee475029dabd40d2cf06340e2",
         "terrain": "b4dd849dc08c61c60f2f65c14b19086f9bfa6ede62aed91ef63e278ab6ce5851",
         "hydrology": "b7b2859b5e9ff960b503fc6df9858db1b2a14bcfe840d0fa5cb702838bab85a1",
         "ridges": "ec22c9f8ff67e8ee0e4c551e7a8e099ef37a3770362b894c2e6bca18d8af27ca",
-        "composition": "aced917695f298744e88184edda86bd94dab891eabfa88c46b94c6b297cdb9b5"
+        "composition": "6b2c05af50b7393c30d7dedfe04d146aeda339934f0e326e42ef2a1624aa09a0"
       }
     },
     "tsvl-14": {
-      "worldHash": "5d65f53ffa85f3ab63dc1926bc69505b29e1f3cfdb0c6e741144923175a9896e",
+      "worldHash": "8f5298c649a06cd3710dd1ca581563c593327f691cefd31db318b93a60c48690",
       "stages": {
-        "header": "b85722ff77f765f29b9e8a66133a81cdffc12f1e42559f9c7fb4b95d2955a1b1",
+        "header": "a9fa4da74956ab486845b19fca850a0d892ed0a5ec32fcc356e9f0b296d7d0b0",
         "terrain": "6bf953ac92024b5208d56b0b7facfa755df19292011162496ac610102ae2e56b",
         "hydrology": "689dda07344834c874adfc5007a2081305e4a63e39d56a979a8a968f1901f42e",
         "ridges": "3c0780dce28eb386bdfb932f525e88f636f3de283764ca3b8e8ab64f7aa95654",
-        "composition": "5fa379419d4e37279218466177ec884c73cc2b216a702ac1cd908a0d7cdaf78a"
+        "composition": "8b8e56c2da2713826b304f76e1de09835c56c005d1d4abf89d29eb6cf3855547"
       }
     },
     "tsvl-15": {
-      "worldHash": "039ed3542626ee35c61133f4b0af854ad3e0edd108bf0710066861729590d16c",
+      "worldHash": "726d7a965da7df5e8bf0f66acb839a258c053abff662660154ece2ba1b526c26",
       "stages": {
-        "header": "36900d72fbd94317bf412b16e457a9c1fdd5200c0c49dc01ebb7d507a079b147",
+        "header": "964a2f7e5d286de8a7a7cd6e636660c8f332f83d0cdbbe69266b3a71350ad8ab",
         "terrain": "92574a7694684ec781a4caca5f774ac8f9f28c219f758236f355db3fecdaac18",
         "hydrology": "8da0a8d83202002cfe21ba804dfd7a749c135ee9015d9cee3c29d746aaaf5c68",
         "ridges": "349112c6c8e9da0c542b7c5fe5324de11c5c30f76112d499b6cd62a7917887e9",
-        "composition": "bed6a6f60760abfd91936daebd890f3a94be55f6dd788a931cc3cedc8fe8c0ba"
+        "composition": "7ce04e5cc94886a92c839393f3f9521035070a92dbf264272faefd619d62d13d"
       }
     },
     "tsvl-16": {
-      "worldHash": "c639d08fb15c315ca639ddbfc516d850b1798468fd06417ec6d4131f92949b94",
+      "worldHash": "3c4b3bb1973ea450553567e05e082ad00f1cb95f236c32414de20adbc7b3f52d",
       "stages": {
-        "header": "b8adc0f6ea2edb2f8af7b39a2ad4e41c942a5b0f8eecea6bfd5aa028ab89affc",
+        "header": "992165816270b1ac503a472d66ebbf8215cae866f5f1f094ac9d694002e3aec1",
         "terrain": "0865608c8045aeaf43e2d7c38d6aadcfb0aa556505d9a79f5d90dffad6e7c0d0",
         "hydrology": "f337d18f9e6b09929e057702f56645a96180991f52e56dfaf50f4071e5866e7d",
         "ridges": "ac2ba7b9490b35c70e5f8e1a0dc1e231cef268de9d723d85fe28cb50baecd741",
-        "composition": "c588cb5fb78f5e363f2545235292b54628177f2dc6e5026ac088c654de650610"
+        "composition": "511895d0a593c51d869553a7eebb2ed4fe3c963e71da37b6fd7d4087be230250"
       }
     },
     "tsvl-17": {
-      "worldHash": "ea908f7bbbb3782046f13ddc1754368891dd273b3f3abdc35f4fec1979bbeb53",
+      "worldHash": "74aa027a061e737fbdd01e23c64b055f00492684f4963fc461fc18a623a6442b",
       "stages": {
-        "header": "610ba2767c087c75e3a086205dcf573b079a1cc1ecc6faabdbcb7b4a6d393131",
+        "header": "bccfbe8a9c5ba699279f9f28f7e29be39978e1be0d7c65288bad3790a111f168",
         "terrain": "41b00a7998aa7c0b820cf7aea5fe5ccc23331adad31de3c4f2751ac864722693",
         "hydrology": "56513e4a1eaa59883ed570005d5155491bdddde7acc0fdbe713978d06cb94bb1",
         "ridges": "015e4d25bfe31f989d833e5e28f14b808664aead14499ad6e0037befb4fa6470",
-        "composition": "fd73b0366fd9ad359493515ece4ad486607fd4a17ef203e51d398c82c6091bfe"
+        "composition": "fced6fa4e609ee5043e24bab933ad3b5edd82413729e585a7442fcb4c6ec6fea"
       }
     },
     "tsvl-18": {
-      "worldHash": "bd0483dad5169fa0dd74a8203d1339d428f9d678eddc4b7b14219bdfecceee6e",
+      "worldHash": "9f010c6073fba8f230532d6315bd142bac53f0c344787dae3852b7c50e36ff6b",
       "stages": {
-        "header": "0493f1ca8d84a86fdd2499ecb307824b8781fb2838a5a92abd20a1a83946c6c3",
+        "header": "b6e3417da07d0394d3065f2454127cd0b270b9c1c7ba9a88b25ef1943e16a6ac",
         "terrain": "e3b72645268c097aae2e0d961b0d1b09c1069daa3c65725ea4a5e813f4226631",
         "hydrology": "3916ff6c32f8b155653d7fe95d9efdd8eef57a1be8679c80bf4742b8b63120b7",
         "ridges": "a3a10d84bc73e623994e47da0be8ae760310c9ba40633d68d7df4b9b8fe09441",
-        "composition": "42a07afa0e360443099e25dee65c79ca90af154e66f7f31b8b704878a3104800"
+        "composition": "fc1ad40db58e316af9b0159a3c484becc1616a3b3a42284467a9700c6b1ef0f5"
       }
     },
     "tsvl-19": {
-      "worldHash": "dbafac1740345821e7932804c08ef70decbca59541b2e157d067c499bf9e438e",
+      "worldHash": "446abed6f553a35fece639dac2aa290545ceb6fe19ccab938040a4339c014b9d",
       "stages": {
-        "header": "e82fdddc7facb34ae9acfd633f27e91705e0c7ce6bafa2e8759adfc2f221b98f",
+        "header": "1356b679d945cecb7e80031f2f6492fbfd91e0317443f4edf4da843cefdb267e",
         "terrain": "8efbf409ed407554553594c060c470059b57ca52a3a75f73bb883674e511330d",
         "hydrology": "801bc1b3b709e62c43ad4b20ef8edb4719024259c4ed1b22848013dc8c8635f6",
         "ridges": "e646650293aeabd7c05ba78db5a37694320a52ab159aaec190230f621528d439",
-        "composition": "721d5db0b3dfe57e920c6564d8e62dfce6961cad54aef22fa8be30ed6dd7172b"
+        "composition": "d3b9d93d671ca42cc2e4027dec6bdde53510da9c00796c564b1c13aaf9fdf122"
       }
     },
     "tsvl-20": {
-      "worldHash": "79c3ceacfa9a24e8d844c3dd7cb48048ac6a92a15616fa29553bbb1f7030ad6a",
+      "worldHash": "e9b8ea751f153d1dea3981c3861be0f832f203ab1a926e3927af2e1a7cad4b4b",
       "stages": {
-        "header": "355b43a466b86ff5a67b5e7391f0586a9195f4f432d954734bb3fc53066835e3",
+        "header": "981995e3c0af04fe0f65ee84de1f415dea850ad02838b04e8e09fd84f8bf3e1b",
         "terrain": "6e6c958a8f8eb001a6abb553c1e2c8831d1e9b18e2a295e6faf23811cce2f8d2",
         "hydrology": "95048508f9367abc1e2e5e6aab9f1473d77825aa0947e73ef59205d99f88b21e",
         "ridges": "eb73fb96893b02a217e3b09ef45b9f9232b45663eb65bbb7da338779ae111859",
-        "composition": "57ad5727027cc73afab1729b2763d2753c2c0b7bee302e80423a7e9f97322da5"
+        "composition": "3ee2ce86be9d198063db1fe92dfe457034cc925873391dcc35c349730962fdd0"
       }
     }
   }

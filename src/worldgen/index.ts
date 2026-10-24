@@ -101,6 +101,7 @@ export function serializeStages(world: WorldData, logic: ManifestLogic): Record<
     comp.f64(s.x);
     comp.f64(s.y);
     comp.u32(s.variant);
+    comp.str(s.family);
     comp.u8(s.flip ? 1 : 0);
     comp.f64(s.scale);
     comp.f64(s.squash);

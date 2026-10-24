@@ -3,7 +3,7 @@
 // looks the same. Real PNG/WebP art replaces these through the manifest without code changes.
 import { createSimplex2D, type Noise2D } from '../core/noise';
 import { rngFor, type Rng } from '../core/rng';
-import type { AssetEntry, Manifest } from '../assets/manifestTypes';
+import type { AssetEntry, Family, Manifest } from '../assets/manifestTypes';
 
 /** Texture pixels per cell. Z3 renders at 64 px per cell; brush texture survives the upscale, and painting stays fast. */
 export const ART_PX_PER_CELL = 44;
@@ -28,9 +28,7 @@ interface Profile {
   tops: { x: number; y: number; w: number }[];
 }
 
-/** Silhouette family of a variant (manifest visual.source.params.families, one per variant). */
-export type Family = 'range' | 'pinnacle' | 'flat' | 'cliff' | 'hill';
-export const FAMILIES: readonly Family[] = ['range', 'pinnacle', 'flat', 'cliff', 'hill'];
+export { FAMILIES, type Family } from '../assets/manifestTypes';
 
 type Span = [number, number];
 
@@ -310,15 +308,10 @@ function familySpec(f: Family, steep: number): FamilySpec {
   }
 }
 
-/** Family of a variant: from the manifest list, else by generator (older manifests). */
-export function familyOf(entry: AssetEntry, variant: number, generator: string): Family {
-  const params = entry.visual.source.type === 'procedural' ? entry.visual.source.params : {};
-  const list = params.families;
-  if (Array.isArray(list) && list.length > 0) {
-    const f = String(list[variant % list.length]) as Family;
-    if (FAMILIES.includes(f)) return f;
-  }
-  return generator === 'hill.v1' ? 'hill' : 'range';
+/** Family of a variant: manifest logic.variantFamilies (worldgen chooses variants by it). */
+export function familyOf(entry: AssetEntry, variant: number, _generator: string): Family {
+  const list = entry.logic.variantFamilies;
+  return list[variant % list.length];
 }
 
 export function paintMountain(entry: AssetEntry, variant: number, key: string, pal: Ink, generator: string): HTMLCanvasElement {

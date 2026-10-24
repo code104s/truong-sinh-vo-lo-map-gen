@@ -5,7 +5,7 @@
 // anti-repetition pass over that canonical order, so the result never depends on candidate
 // order, chunk load order or iteration order of hash maps.
 import { hash01, hash32, seedToU32 } from '../core/rng';
-import type { ManifestLogic } from '../assets/manifestTypes';
+import type { Family, ManifestLogic } from '../assets/manifestTypes';
 import type { WorldConfig } from './config';
 import type { HydrologyResult } from './hydrology';
 import type { RidgeResult } from './ridges';
@@ -23,6 +23,8 @@ export interface StampInstance {
   x: number;
   y: number;
   variant: number;
+  /** Family the terrain role asked for; the variant's own family may be a fallback (FAMILY_FALLBACK). */
+  family: Family;
   flip: boolean;
   scale: number;
   squash: number;
@@ -36,6 +38,7 @@ export interface StampInstance {
 export interface Candidate {
   key: string;
   role: StampRole;
+  family: Family;
   clusterId: number;
   x: number;
   y: number;
@@ -46,6 +49,55 @@ export interface Candidate {
 
 export interface SceneComposition {
   stamps: StampInstance[];
+}
+
+/**
+ * Family order tried when no variant of the wanted family is free (anti-repetition) or the key
+ * has none: the wanted family first, then the closest silhouettes.
+ */
+export const FAMILY_FALLBACK: Record<Family, readonly Family[]> = {
+  range: ['range', 'flat', 'cliff', 'pinnacle', 'hill'],
+  pinnacle: ['pinnacle', 'cliff', 'range', 'flat', 'hill'],
+  cliff: ['cliff', 'pinnacle', 'range', 'flat', 'hill'],
+  flat: ['flat', 'range', 'cliff', 'pinnacle', 'hill'],
+  hill: ['hill', 'range', 'flat', 'cliff', 'pinnacle'],
+};
+
+/** Cells within 0.03 of a summit's height that make it a flat top (đỉnh bằng). */
+const FLAT_TOP_CELLS = 6;
+/** East/west slope ratio that makes a summit or ridge a cliff (vách). */
+const CLIFF_RATIO = 2;
+
+/** East and west drop from a cell over 3 cells; the larger over the smaller (min 0.005). */
+export function slopeRatio(H: Float32Array, w: number, x: number, y: number): number {
+  const c = H[y * w + x];
+  const dw = c - H[y * w + Math.max(0, x - 3)], de = c - H[y * w + Math.min(w - 1, x + 3)];
+  const a = Math.max(0.005, dw), b = Math.max(0.005, de);
+  return a > b ? a / b : b / a;
+}
+
+/**
+ * Silhouette of a summit from the ground around it: flat when at least FLAT_TOP_CELLS cells
+ * (4-connected to it, within 4 cells) lie within 0.03 of its height; cliff when one flank drops
+ * CLIFF_RATIO times faster than the other; else pinnacle.
+ */
+export function summitFamily(H: Float32Array, sea: Uint8Array, w: number, x: number, y: number): Family {
+  const top = H[y * w + x];
+  const seen = new Set<number>([y * w + x]);
+  const queue = [y * w + x];
+  for (let head = 0; head < queue.length && queue.length < FLAT_TOP_CELLS; head++) {
+    const c = queue[head], cx = c % w, cy = (c - cx) / w;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = cx + dx, ny = cy + dy;
+      if (nx < 0 || ny < 0 || nx >= w || ny >= w || Math.abs(nx - x) > 4 || Math.abs(ny - y) > 4) continue;
+      const nb = ny * w + nx;
+      if (seen.has(nb) || sea[nb] || Math.abs(H[nb] - top) > 0.03) continue;
+      seen.add(nb);
+      queue.push(nb);
+    }
+  }
+  if (queue.length >= FLAT_TOP_CELLS) return 'flat';
+  return slopeRatio(H, w, x, y) >= CLIFF_RATIO ? 'cliff' : 'pinnacle';
 }
 
 const KEY_SALT: Record<string, number> = { 'mountain.main': 11, 'mountain.tall': 23, 'mountain.low': 37, hill: 41 };
@@ -94,11 +146,14 @@ export function generateCandidates(
     }
     const main = ridges.peaks[mainIdx >= 0 ? mainIdx : cl.peaks[0]];
     if (mainIdx >= 0) {
-      out.push({ key: 'mountain.main', role: 'main', clusterId: cl.id, x: mx, y: my, baseScale: 1, path: -1, pathPos: 0 });
-      // Shoulders flank the main peak, slightly in front, so it reads as one massif.
+      const mc = ridges.peaks[mainIdx].cell;
+      const family = summitFamily(H, hydro.sea, w, mc % w, Math.floor(mc / w));
+      out.push({ key: 'mountain.main', role: 'main', family, clusterId: cl.id, x: mx, y: my, baseScale: 1, path: -1, pathPos: 0 });
+      // Shoulders flank the main peak, slightly in front, so it reads as one massif; they share
+      // its silhouette family.
       const fw = logic['mountain.main'].footprint[0];
-      out.push({ key: 'mountain.tall', role: 'shoulder', clusterId: cl.id, x: mx - fw * 0.42, y: my + 0.7, baseScale: 0.82, path: -1, pathPos: 0 });
-      out.push({ key: 'mountain.tall', role: 'shoulder', clusterId: cl.id, x: mx + fw * 0.4, y: my + 0.9, baseScale: 0.76, path: -1, pathPos: 0 });
+      out.push({ key: 'mountain.tall', role: 'shoulder', family, clusterId: cl.id, x: mx - fw * 0.42, y: my + 0.7, baseScale: 0.82, path: -1, pathPos: 0 });
+      out.push({ key: 'mountain.tall', role: 'shoulder', family, clusterId: cl.id, x: mx + fw * 0.4, y: my + 0.9, baseScale: 0.76, path: -1, pathPos: 0 });
     }
     let guests = 0;
     for (const pi of cl.peaks) {
@@ -106,7 +161,7 @@ export function generateCandidates(
       const p = ridges.peaks[pi];
       const rel = (p.height - cfg.hillLevel) / Math.max(1e-6, main.height - cfg.hillLevel);
       out.push({
-        key: 'mountain.tall', role: 'guest', clusterId: cl.id,
+        key: 'mountain.tall', role: 'guest', family: summitFamily(H, hydro.sea, w, p.cell % w, Math.floor(p.cell / w)), clusterId: cl.id,
         x: cxOf(p.cell), y: cyOf(p.cell) + 0.8, baseScale: Math.min(0.9, 0.62 + 0.26 * rel), path: -1, pathPos: 0,
       });
       guests++;
@@ -136,13 +191,14 @@ export function generateCandidates(
       const bx = cxOf(b), by = cyOf(b) + 0.6;
       const hb = H[b];
       const key = hb >= cfg.mountainLevel + 0.1 ? 'mountain.tall' : hb >= cfg.mountainLevel ? 'mountain.low' : 'hill';
+      const family = key === 'hill' ? 'hill' : ridgeFamily(H, w, cells, k);
       const baseScale = key === 'mountain.tall' ? 0.66 + 0.5 * Math.min(1, (hb - cfg.mountainLevel - 0.1) / 0.25) : 0.9;
       const fw0 = logic[key].footprint[0];
       const size = (x: number, y: number) => fw0 * stampScale(s32, key, x, y, baseScale);
       if (!last) {
         const fw = size(bx, by);
         last = { x: bx, y: by, ex: fw * EXTENT_X, ey: fw * EXTENT_Y };
-        out.push({ key, role: 'ridge', clusterId: clusterOfPath[pi], x: bx, y: by, baseScale, path: pi, pathPos: pos++ });
+        out.push({ key, role: 'ridge', family, clusterId: clusterOfPath[pi], x: bx, y: by, baseScale, path: pi, pathPos: pos++ });
         continue;
       }
       // Not yet far enough: the stamp would overlap more than the target even at b.
@@ -159,7 +215,7 @@ export function generateCandidates(
       const px: number = last.x + (bx - last.x) * hi, py: number = last.y + (by - last.y) * hi;
       const fw = size(px, py);
       last = { x: px, y: py, ex: fw * EXTENT_X, ey: fw * EXTENT_Y };
-      out.push({ key, role: 'ridge', clusterId: clusterOfPath[pi], x: px, y: py, baseScale, path: pi, pathPos: pos++ });
+      out.push({ key, role: 'ridge', family, clusterId: clusterOfPath[pi], x: px, y: py, baseScale, path: pi, pathPos: pos++ });
       k--; // the same cell may host another stamp further along
     }
   });
@@ -178,7 +234,7 @@ export function generateCandidates(
       if (clumpDensity(s32, jx, jy, 14) < 0.45 - 0.25 * lift) continue;
       const key = H[c] >= cfg.mountainLevel + 0.1 ? 'mountain.tall' : 'mountain.low';
       out.push({
-        key, role: 'massif', clusterId: nearestCluster(ridges, jx, jy, w), x: jx + 0.5, y: jy + 0.5,
+        key, role: 'massif', family: summitFamily(H, hydro.sea, w, jx, jy), clusterId: nearestCluster(ridges, jx, jy, w), x: jx + 0.5, y: jy + 0.5,
         baseScale: key === 'mountain.tall' ? 0.6 + 0.45 * Math.min(1, (H[c] - cfg.mountainLevel - 0.1) / 0.25) : 0.8,
         path: -1, pathPos: 0,
       });
@@ -199,10 +255,23 @@ export function generateCandidates(
       if (H[c] < floor || H[c] >= cfg.mountainLevel || near[c] < 3) continue;
       const chance = (H[c] - floor) / (cfg.mountainLevel - floor);
       if (hash01(s32, jx, jy, 9) > (0.26 + 0.55 * chance) * (0.3 + 1.4 * clumpDensity(s32, jx + 7, jy + 7, 18))) continue;
-      out.push({ key: 'hill', role: 'hill', clusterId: -1, x: jx + 0.5, y: jy + 0.5, baseScale: 0.65 + 0.45 * chance, path: -1, pathPos: 0 });
+      out.push({ key: 'hill', role: 'hill', family: 'hill', clusterId: -1, x: jx + 0.5, y: jy + 0.5, baseScale: 0.65 + 0.45 * chance, path: -1, pathPos: 0 });
     }
   }
   return out;
+}
+
+/**
+ * Silhouette along a ridge path at cells[k]: a crest running east-west reads as a range (dãy); one
+ * running north-south, seen from above with upright mountains, as stacked peaks: cliff when one
+ * flank is much steeper, else pinnacle. Direction from the cells two steps either side.
+ */
+export function ridgeFamily(H: Float32Array, w: number, cells: readonly number[], k: number): Family {
+  const a = cells[Math.max(0, k - 2)], b = cells[Math.min(cells.length - 1, k + 2)];
+  const dx = Math.abs((b % w) - (a % w)), dy = Math.abs(Math.floor(b / w) - Math.floor(a / w));
+  if (dx >= dy) return 'range';
+  const c = cells[k];
+  return slopeRatio(H, w, c % w, Math.floor(c / w)) >= CLIFF_RATIO ? 'cliff' : 'pinnacle';
 }
 
 export interface FootBox { x0: number; y0: number; x1: number; y1: number }
@@ -339,8 +408,11 @@ export function composeStamps(
     accepted[i] = { ...best, role: 'main' };
   }
 
-  // Variant assignment over the canonical order, with anti-repetition: no neighbour with the same
-  // variant and flip, and no variant above 25% of its (cluster, key) group once the group has 8+.
+  // Variant assignment over the canonical order. The terrain role fixes the family; inside it a
+  // position hash picks the variant, with anti-repetition: no neighbour with the same variant and
+  // flip, and no variant above 25% of its (cluster, key) group once the group has 8+. When the
+  // family has no variant that passes, the next family of FAMILY_FALLBACK is tried; the strict
+  // pass (both rules) runs over the whole fallback chain before the relaxed pass (neighbour rule).
   const stamps: StampInstance[] = [];
   const H = hydro.height;
   const groupKey = (c: { clusterId: number; key: string }) => `${c.clusterId}|${c.key}`;
@@ -351,7 +423,7 @@ export function composeStamps(
     const lg = logic[cand.key];
     const qx = Math.round(cand.x * 16), qy = Math.round(cand.y * 16);
     const salt = KEY_SALT[cand.key] ?? 97;
-    let variant = hash32(s32, qx, qy, salt) % lg.variants;
+    const h = hash32(s32, qx, qy, salt);
     // Flip from the local east-west slope so lit and shaded faces agree with the terrain.
     const cx = Math.min(w - 2, Math.max(1, Math.floor(cand.x)));
     const cy = Math.min(w - 1, Math.max(0, Math.floor(cand.y - 1)));
@@ -365,22 +437,47 @@ export function composeStamps(
     used.set(gk, counts);
     const near = (v: number) => stamps.some((o) => o.key === cand.key && o.variant === v && o.flip === flip
       && (o.x - cand.x) * (o.x - cand.x) + (o.y - cand.y) * (o.y - cand.y) < radius * radius);
-    // Strict pass honours both rules; the relaxed pass keeps only the neighbour rule.
+    const members = (f: Family) => {
+      const list: number[] = [];
+      for (let v = 0; v < lg.variants; v++) if (lg.variantFamilies[v] === f) list.push(v);
+      return list;
+    };
     let chosen = -1;
     for (let pass = 0; pass < 2 && chosen < 0; pass++) {
-      for (let tries = 0; tries < lg.variants; tries++) {
-        const v = (variant + tries) % lg.variants;
-        if (pass === 0 && counts[v] >= cap) continue;
-        if (!near(v)) { chosen = v; break; }
+      for (const f of FAMILY_FALLBACK[cand.family]) {
+        const list = members(f);
+        for (let tries = 0; tries < list.length && chosen < 0; tries++) {
+          const v = list[(h + tries) % list.length];
+          if (pass === 0 && counts[v] >= cap) continue;
+          if (!near(v)) chosen = v;
+        }
+        if (chosen >= 0) break;
       }
     }
-    if (chosen >= 0) variant = chosen;
+    if (chosen < 0) {
+      // Every variant has a twin within the radius: take the one whose nearest twin is farthest
+      // (fallback order, then hash order, breaks ties).
+      let best = -1;
+      for (const f of FAMILY_FALLBACK[cand.family]) {
+        const list = members(f);
+        for (let tries = 0; tries < list.length; tries++) {
+          const v = list[(h + tries) % list.length];
+          let d = Infinity;
+          for (const o of stamps) {
+            if (o.key !== cand.key || o.variant !== v || o.flip !== flip) continue;
+            d = Math.min(d, (o.x - cand.x) * (o.x - cand.x) + (o.y - cand.y) * (o.y - cand.y));
+          }
+          if (d > best) { best = d; chosen = v; }
+        }
+      }
+    }
+    const variant = chosen;
     counts[variant]++;
     const r2 = hash01(s32, qx, qy, salt + 3), r3 = hash01(s32, qx, qy, salt + 4);
     stamps.push({
       id: 0,
       key: cand.key, role: cand.role, clusterId: cand.clusterId, x: cand.x, y: cand.y,
-      variant, flip,
+      variant, family: cand.family, flip,
       scale: finalScale(cand),
       squash: Math.fround(0.93 + 0.14 * r2),
       tone: r3 < 0.25 ? -1 : r3 > 0.8 ? 1 : 0,
