@@ -11,7 +11,8 @@ import { createMistLayer } from '../render/mistLayer';
 import { createOverlay } from '../render/overlay';
 import { createRiverLayer } from '../render/riverLayer';
 import { createStampLayer, loadArt, type StampSprite } from '../render/stampLayer';
-import { createTerrainLayer, type TerrainLayer } from '../render/terrainLayer';
+import { TerrainCache } from '../render/terrainCache';
+import { createTerrainLayer } from '../render/terrainLayer';
 import { generateWorld, hashWorld, type WorldData, type WorldHashes } from '../worldgen/index';
 import { reviewView, type ViewName } from './views';
 
@@ -39,7 +40,7 @@ interface DebugApi {
   hashOnMain(seed: string): Promise<{ worldHash: string; stages: Record<string, string> }>;
   frameStats(): { fps: number; frames: number[] };
   resetFrames(): void;
-  /** Updates culling and renders one frame (used in shot mode, where the ticker is stopped). */
+  /** Updates culling and renders one frame (shot mode renders only through this). */
   renderNow(): void;
   /** Result of the scripted zoom sweep (?bench=1). */
   benchResult?: { seconds: number; frames: number; avgFps: number; p5Fps: number; minFps: number };
@@ -65,7 +66,7 @@ interface Built {
   world: WorldData;
   layers: Container[];
   overlay: Container;
-  terrain: TerrainLayer;
+  terrain: TerrainCache;
   rivers: Container;
   riversFar: Container;
   sprites: StampSprite[];
@@ -100,12 +101,36 @@ async function main(): Promise<void> {
   let built: Built | null = null;
   let overlayOn = params.get('overlay') === '1';
 
+  // The map is static, so frames are rendered on demand (camera, layer toggles, resize) instead
+  // of on every tick. Frame times are kept only for runs of back-to-back frames, as an fps figure
+  // while the camera moves. Shot mode renders only through renderNow().
+  app.ticker.stop();
+  const hud = document.getElementById('hud')!;
+  const frames: number[] = [];
+  let lastFrame = 0;
+  let frameQueued = false;
+  function requestRender(): void {
+    if (shot || frameQueued) return;
+    frameQueued = true;
+    requestAnimationFrame((now) => {
+      frameQueued = false;
+      if (lastFrame && now - lastFrame < 250) {
+        frames.push(now - lastFrame);
+        if (frames.length > 600) frames.shift();
+      }
+      lastFrame = now;
+      update();
+      app.render();
+    });
+  }
+
   async function build(s: string): Promise<void> {
     api.ready = false;
     const [{ world, hashes, genMs }, art] = await Promise.all([generateInWorker(s), artPromise]);
     const t0 = performance.now();
     const size = world.config.size;
     if (built) {
+      built.terrain.destroy();
       for (const child of worldRoot.removeChildren()) child.destroy({ children: true });
     }
 
@@ -114,8 +139,8 @@ async function main(): Promise<void> {
     layer1.label = 'layer1-ground';
     const hydroView = buildHydroView(world);
     const field = buildFieldImage(world, hydroView);
-    const terrain = createTerrainLayer(field, size, manifest);
-    layer1.addChild(terrain.mesh);
+    const terrain = new TerrainCache(createTerrainLayer(field, size, manifest), app.renderer, size * CELL_PX, requestRender);
+    layer1.addChild(terrain.view);
     // Rivers in two LODs: true scale from zoom 0.5 up, widened below so the network still frames Z1.
     const sdAt = (x: number, y: number) => sampleSdf(field, x, y);
     const rivers = createRiverLayer(world, manifest, hydroView, sdAt);
@@ -143,6 +168,7 @@ async function main(): Promise<void> {
       camera = new Camera(worldRoot, app.screen, size * CELL_PX);
       camera.minZoom = Math.min(0.2, camera.fitZoom() * 0.9);
       camera.attach(app.canvas);
+      camera.onChange = requestRender;
       camera.fit();
     }
 
@@ -161,19 +187,17 @@ async function main(): Promise<void> {
     api.stats.stamps = sprites.length;
     // Two frames so textures are uploaded before anyone screenshots.
     if (shot) app.render();
-    else await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    else {
+      requestRender();
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    }
     api.ready = true;
   }
 
-  const frames: number[] = [];
-  let last = performance.now();
-  const hud = document.getElementById('hud')!;
-  // Shot mode renders on demand: software GL in CI is slow, so only render when a capture needs it.
-  if (shot) app.ticker.stop();
   const update = () => {
     if (!built || !camera) return;
     const { terrain, sprites, bounds, world } = built;
-    terrain.setPxPerCell(CELL_PX * camera.zoom);
+    terrain.sync(camera, app.screen, app.renderer.resolution, shot);
     built.riversFar.visible = camera.zoom < 0.5;
     built.rivers.visible = !built.riversFar.visible;
     const [vx0, vy0] = camera.screenToWorld(0, 0);
@@ -188,37 +212,33 @@ async function main(): Promise<void> {
     api.stats.visibleStamps = visible;
     api.stats.zoom = camera.zoom;
     if (!shot) {
-      const fps = 1000 / (frames.slice(-60).reduce((a, b) => a + b, 0) / Math.min(60, frames.length));
+      const recent = frames.slice(-60);
+      const fps = recent.length ? `${(1000 / (recent.reduce((a, b) => a + b, 0) / recent.length)).toFixed(0)} fps` : 'idle';
       hud.textContent = `seed ${api.seed}   worldHash ${(api.worldHash ?? '').slice(0, 12)}   v${world.worldgenVersion}\n`
-        + `zoom ${camera.zoom.toFixed(2)}   ${fps.toFixed(0)} fps   stamps ${visible}/${sprites.length}\n`
+        + `zoom ${camera.zoom.toFixed(2)}   ${fps}   stamps ${visible}/${sprites.length}\n`
         + `D overlay · 1–5 layers · wheel zoom · drag pan`;
     }
   };
-  app.ticker.add(() => {
-    const now = performance.now();
-    frames.push(now - last);
-    if (frames.length > 600) frames.shift();
-    last = now;
-    update();
-  });
 
   window.addEventListener('keydown', (e) => {
     if (!built) return;
     if (e.key === 'd' || e.key === 'D') { overlayOn = !overlayOn; built.overlay.visible = overlayOn; }
     const k = Number(e.key);
     if (k >= 1 && k <= 5) built.layers[k - 1].visible = !built.layers[k - 1].visible;
+    requestRender();
   });
+  window.addEventListener('resize', requestRender);
 
   api.setView = (name) => { if (built && camera) camera.set(reviewView(built.world, name, camera.fitZoom())); };
   api.setCamera = (state) => { if (camera) camera.set(state); };
-  api.setOverlay = (on) => { overlayOn = on; if (built) built.overlay.visible = on; };
+  api.setOverlay = (on) => { overlayOn = on; if (built) built.overlay.visible = on; requestRender(); };
   api.loadSeed = (s) => build(s);
   api.hashOnMain = async (s) => {
     const logic = logicOf(manifest);
     return hashWorld(generateWorld(s, logic), logic);
   };
   api.frameStats = () => ({ fps: 1000 / (frames.reduce((a, b) => a + b, 0) / Math.max(1, frames.length)), frames: [...frames] });
-  api.resetFrames = () => { frames.length = 0; last = performance.now(); };
+  api.resetFrames = () => { frames.length = 0; lastFrame = 0; };
   api.renderNow = () => { update(); app.render(); };
 
   await build(seed);

@@ -1,0 +1,86 @@
+<title>Trường Sinh Vô Lộ</title>
+<style>
+  :root {
+    --paper: #e9e1cf; --panel: rgba(239, 232, 216, 0.92); --ink: #2f2b25; --ink-soft: #6b6457;
+    --line: #c9bea6; --cinnabar: #a8412f; --on-cinnabar: #f6efe0;
+  }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--paper); color: var(--ink); }
+  #app { position: fixed; inset: 0; }
+  #hud {
+    position: fixed; left: calc(12px + env(safe-area-inset-left, 0px)); bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+    font: 12px/1.4 ui-monospace, monospace; color: var(--ink); background: var(--panel);
+    padding: 6px 9px; border-radius: 4px; pointer-events: none; white-space: pre;
+  }
+  #ctl {
+    position: fixed; top: calc(12px + env(safe-area-inset-top, 0px)); left: calc(12px + env(safe-area-inset-left, 0px));
+    max-width: calc(100vw - 24px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)); box-sizing: border-box;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px;
+    padding: 8px 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+    font: 13px/1.3 "Noto Serif", Georgia, serif; z-index: 5;
+  }
+  #ctl h1 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: 0.02em; }
+  #ctl .ver { color: var(--ink-soft); font: 11px ui-monospace, monospace; }
+  #ctl .grp { display: flex; gap: 4px; align-items: center; }
+  #ctl label { color: var(--ink-soft); font-size: 12px; }
+  #ctl select, #ctl button {
+    font: inherit; font-size: 13px; color: var(--ink); background: transparent;
+    border: 1px solid var(--line); border-radius: 4px; padding: 3px 8px; cursor: pointer;
+  }
+  #ctl button[aria-pressed="true"] { background: var(--cinnabar); border-color: var(--cinnabar); color: var(--on-cinnabar); }
+  #ctl button:disabled, #ctl select:disabled { opacity: 0.5; cursor: progress; }
+  #status { color: var(--ink-soft); font-size: 12px; min-width: 6ch; }
+</style>
+<script type="module" crossorigin src="./assets/main-D415L_D0.js"></script>
+<link rel="modulepreload" crossorigin href="./assets/stampArt-BCVK16NT.js">
+
+<div id="app"></div>
+<div id="hud"></div>
+<div id="ctl">
+  <h1>Trường Sinh Vô Lộ</h1>
+  <span class="ver">worldgen 2.0.0 · wave 2</span>
+  <div class="grp">
+    <label for="seed">Seed</label>
+    <select id="seed"></select>
+    <button id="prev" title="Seed trước" aria-label="Seed trước">‹</button>
+    <button id="next" title="Seed sau" aria-label="Seed sau">›</button>
+  </div>
+  <div class="grp" id="views">
+    <button data-v="Z1" aria-pressed="true">Z1</button>
+    <button data-v="Z2" aria-pressed="false">Z2</button>
+    <button data-v="Z3" aria-pressed="false">Z3</button>
+  </div>
+  <button id="ov" aria-pressed="false" title="Lớp gỡ lỗi: ridge graph so với heightmap">Overlay</button>
+  <span id="status">Đang sinh…</span>
+</div>
+
+<script>
+(() => {
+  const seeds = Array.from({ length: 20 }, (_, i) => 'tsvl-' + String(i + 1).padStart(2, '0'));
+  const sel = document.getElementById('seed'), status = document.getElementById('status');
+  const viewBtns = [...document.querySelectorAll('#views button')], ov = document.getElementById('ov');
+  for (const s of seeds) sel.add(new Option(s, s));
+  let view = 'Z1', overlay = false, busy = true;
+  const controls = () => [sel, document.getElementById('prev'), document.getElementById('next'), ...viewBtns, ov];
+  const setBusy = (b, msg) => { busy = b; controls().forEach((c) => (c.disabled = b)); status.textContent = msg; };
+  setBusy(true, 'Đang sinh…');
+  const api = () => window.__tsvl;
+  const waitReady = () => new Promise((res) => { const t = () => (api() && api().ready ? res() : setTimeout(t, 100)); t(); });
+  const showView = (v) => { view = v; viewBtns.forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === v))); api().setView(v); };
+  async function load(s) {
+    setBusy(true, 'Đang sinh ' + s + '…');
+    try {
+      await api().loadSeed(s);
+      api().setOverlay(overlay);
+      showView(view);
+      setBusy(false, (api().genMs ? Math.round(api().genMs) + ' ms' : ''));
+    } catch (e) { setBusy(false, 'Lỗi: ' + e.message); }
+  }
+  sel.addEventListener('change', () => load(sel.value));
+  const step = (d) => { sel.selectedIndex = (sel.selectedIndex + d + seeds.length) % seeds.length; load(sel.value); };
+  document.getElementById('prev').addEventListener('click', () => step(-1));
+  document.getElementById('next').addEventListener('click', () => step(1));
+  viewBtns.forEach((b) => b.addEventListener('click', () => !busy && showView(b.dataset.v)));
+  ov.addEventListener('click', () => { overlay = !overlay; ov.setAttribute('aria-pressed', String(overlay)); api().setOverlay(overlay); });
+  waitReady().then(() => { showView('Z1'); setBusy(false, api().genMs ? Math.round(api().genMs) + ' ms' : ''); });
+})();
+</script>

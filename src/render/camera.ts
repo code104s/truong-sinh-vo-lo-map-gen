@@ -15,6 +15,8 @@ export class Camera {
   cy = 0;
   minZoom = 0.1;
   maxZoom = 4;
+  /** Called after every camera change (the app renders on demand). */
+  onChange: () => void = () => {};
   private dragging = false;
   private lastX = 0;
   private lastY = 0;
@@ -24,6 +26,7 @@ export class Camera {
   apply(): void {
     this.world.scale.set(this.zoom);
     this.world.position.set(this.view.width / 2 - this.cx * this.zoom, this.view.height / 2 - this.cy * this.zoom);
+    this.onChange();
   }
 
   set(state: CameraState): void {

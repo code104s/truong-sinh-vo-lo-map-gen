@@ -2,6 +2,18 @@
 
 Mỗi mục ghi đợt, loại thay đổi (render / art / worldgen), phiên bản worldgen và báo cáo chi tiết.
 
+## Sửa fps bản xem trước (render, không đổi worldgen, 2026-10-24)
+
+Owner đo bản xem trước 8–12 fps. Đo từng phần (SwiftShader, 1280×800, tsvl-07): shader địa hình chiếm khoảng 80% thời gian một khung hình.
+
+### Đổi
+- `src/render/terrainLayer.ts`: shader bỏ qua các số hạng có trọng số đúng bằng 0 (gợn sóng biển trên đất liền và xa bờ, nước khi landW = 1, nét bờ ngoài dải 0,07 ô). 60 ảnh (20 seed × Z1/Z2/Z3) giống hệt từng pixel.
+- `src/render/terrainCache.ts` (mới): vẽ địa hình vào texture (vùng nhìn + lề 30%, lưới texel khớp pixel thiết bị) và một nền toàn bản đồ 2048². Chỉ vẽ lại khi camera ra khỏi vùng đã lưu hoặc zoom đứng yên 160 ms. So với trước: lệch tối đa 1/255 trên 0,004% pixel.
+- `src/app/main.ts`, `src/render/camera.ts`: vẽ theo yêu cầu (camera đổi, bật tắt layer, đổi kích thước); đứng yên thì không vẽ. HUD ghi fps của các khung liền nhau, đứng yên ghi `idle`.
+
+### Đo (SwiftShader, trung vị một bước kéo, `scripts/qa/pan-cost.cjs`)
+- Z1 326 → 119 ms, Z2 438 → 95 ms, Z3 473 → 82 ms. Mỗi lần ra khỏi lề phải vẽ lại một lần (khoảng 1,3 khung hình cũ).
+
 ## Đợt 2, B4 — composition núi (worldgen 2.0.0, 2026-10-24)
 
 Báo cáo cuối Đợt 2 (sáu phần): [02-worldgen-v2.md](02-worldgen-v2.md), mục 9.

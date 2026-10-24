@@ -98,35 +98,49 @@ void main() {
   float val = 1.0 - step(0.5, abs(kind - 2.0));
   float pln = 1.0 - step(0.5, abs(kind - 3.0));
 
-  // Sea: indigo wash strongest near the shore, fading to bare paper offshore.
-  float off = clamp(-sdf / 5.0, 0.0, 1.0);
-  vec3 wc = mix(paper, uIndigo, (0.42 - 0.3 * off) * (0.7 + 0.6 * mott));
-  // Ripple lines parallel to the coast, broken by a dry-brush mask.
-  float rip = 0.0;
-  for (int k = 0; k < 3; k++) {
-    float fk = float(k);
-    float r0 = 0.5 + fk * 0.8 + (fbm(cell * 0.4 + fk * 7.0) - 0.5) * 0.5;
-    float wv = abs(-sdf - r0);
-    float brk = smoothstep(0.35, 0.6, fbm(cell * 0.9 + fk * 3.1));
-    rip += (1.0 - smoothstep(0.02, 0.02 + 1.2 * px, wv)) * (0.55 - fk * 0.15) * brk;
-  }
-  wc = mix(wc, uInk2, rip * step(sdf, 0.0) * 0.55);
-
-  // Lake: one still wash whose darkness follows the real depth (shallow edges pale, deep water
-  // dark), no ripple rings. Mountain lakes are darker and cooler, plain lakes palest and warmer.
-  float dep = d.r;
-  float lakeA = mtn * (0.36 + 0.36 * dep) + val * (0.30 + 0.30 * dep) + pln * (0.24 + 0.26 * dep);
-  vec3 lakeTint = mix(uIndigo, uInk3, mtn * 0.15);
-  lakeTint = mix(lakeTint, uGreen, pln * 0.3);
-  vec3 lwc = mix(paper, lakeTint, lakeA * (0.75 + 0.5 * mott));
-  // Valley lakes: faint broken horizontal streaks, as wind on a long narrow water.
-  float streak = smoothstep(0.6, 0.78, fbm(vec2(cell.x * 0.3, cell.y * 3.5) + 5.0));
-  lwc = mix(lwc, uInk2, val * streak * smoothstep(0.2, 0.6, -sdf) * 0.16);
-  wc = mix(wc, lwc, isLake);
-
   // Plain lakes have a soft shore: the wash fades over a short band instead of a hard edge.
   float soft = mix(px, 0.14, pln);
   float landW = smoothstep(-soft, soft, sdf);
+
+  // Water colour. The branches below only skip terms whose weight is exactly zero (land, or
+  // water too far from the shore for a ripple), so the picture is unchanged; they save most of
+  // the fbm calls on land, which covers most of the screen.
+  vec3 wc = paper;
+  if (landW < 1.0) {
+    if (isLake < 0.5) {
+      // Sea: indigo wash strongest near the shore, fading to bare paper offshore.
+      float off = clamp(-sdf / 5.0, 0.0, 1.0);
+      wc = mix(paper, uIndigo, (0.42 - 0.3 * off) * (0.7 + 0.6 * mott));
+      // Ripple lines parallel to the coast, broken by a dry-brush mask. Ring k sits at most
+      // 2.34 cells offshore, so beyond 2.4 cells plus the antialias band every ring is zero.
+      if (sdf <= 0.0 && -sdf < 2.4 + 1.2 * px) {
+        float rip = 0.0;
+        for (int k = 0; k < 3; k++) {
+          float fk = float(k);
+          float r0 = 0.5 + fk * 0.8 + (fbm(cell * 0.4 + fk * 7.0) - 0.5) * 0.5;
+          float wv = abs(-sdf - r0);
+          float brk = smoothstep(0.35, 0.6, fbm(cell * 0.9 + fk * 3.1));
+          rip += (1.0 - smoothstep(0.02, 0.02 + 1.2 * px, wv)) * (0.55 - fk * 0.15) * brk;
+        }
+        wc = mix(wc, uInk2, rip * 0.55);
+      }
+    } else {
+      // Lake: one still wash whose darkness follows the real depth (shallow edges pale, deep
+      // water dark), no ripple rings. Mountain lakes are darker and cooler, plain lakes palest
+      // and warmer.
+      float dep = d.r;
+      float lakeA = mtn * (0.36 + 0.36 * dep) + val * (0.30 + 0.30 * dep) + pln * (0.24 + 0.26 * dep);
+      vec3 lakeTint = mix(uIndigo, uInk3, mtn * 0.15);
+      lakeTint = mix(lakeTint, uGreen, pln * 0.3);
+      wc = mix(paper, lakeTint, lakeA * (0.75 + 0.5 * mott));
+      // Valley lakes: faint broken horizontal streaks, as wind on a long narrow water.
+      if (val > 0.5 && -sdf > 0.2) {
+        float streak = smoothstep(0.6, 0.78, fbm(vec2(cell.x * 0.3, cell.y * 3.5) + 5.0));
+        wc = mix(wc, uInk2, streak * smoothstep(0.2, 0.6, -sdf) * 0.16);
+      }
+    }
+  }
+
   // Less pooled damp band around lakes than along the sea coast.
   lc = mix(lc, uOchre, (1.0 - smoothstep(0.0, 0.6, sdf)) * 0.12 * (1.0 - 0.6 * isLake));
   // Plain lakes: a pale green marshy fringe on the land side instead of an ink edge.
@@ -135,13 +149,16 @@ void main() {
   vec3 col = mix(wc, lc, landW);
 
   // Coastline in ink: varying width, with dry-brush gaps. Lake shores are thinner and crisper
-  // (mountain), broken (valley) or barely there (plain).
-  float dry = smoothstep(0.2, 0.7, fbm(cell * 1.7 + 9.0));
-  float lw = mix(0.025 + 0.045 * fbm(cell * 0.8), 0.012 + 0.012 * fbm(cell * 0.8), isLake);
-  float coast = 1.0 - smoothstep(lw, lw + 1.2 * px, abs(sdf + 0.02));
-  float seaInk = 0.3 + 0.35 * dry;
-  float lakeInk = mtn * 0.55 + val * (0.18 + 0.32 * dry) + pln * 0.1;
-  col = mix(col, mix(uInk0, uInk1, isLake), coast * mix(seaInk, lakeInk, isLake));
+  // (mountain), broken (valley) or barely there (plain). The line is at most 0.07 cells wide.
+  if (abs(sdf + 0.02) < 0.07 + 1.2 * px) {
+    float dry = smoothstep(0.2, 0.7, fbm(cell * 1.7 + 9.0));
+    float wn = fbm(cell * 0.8);
+    float lw = mix(0.025 + 0.045 * wn, 0.012 + 0.012 * wn, isLake);
+    float coast = 1.0 - smoothstep(lw, lw + 1.2 * px, abs(sdf + 0.02));
+    float seaInk = 0.3 + 0.35 * dry;
+    float lakeInk = mtn * 0.55 + val * (0.18 + 0.32 * dry) + pln * 0.1;
+    col = mix(col, mix(uInk0, uInk1, isLake), coast * mix(seaInk, lakeInk, isLake));
+  }
   // Soft halo of diluted ink around the sea coast (ink bleed); none around lakes.
   col = mix(col, uInk3, (1.0 - smoothstep(0.0, 0.3, abs(sdf))) * 0.12 * (1.0 - isLake));
 
