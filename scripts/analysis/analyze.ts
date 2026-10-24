@@ -408,7 +408,7 @@ for (const seed of seeds) {
     distinctArt: keysUsed,
     clusters: clusterStats,
     rangesWithClearMain: clusterStats.filter((c) => (c.top2Ratio ?? 0) >= 1.25).length,
-    massifNN: nnCv('massif'), hillNN: nnCv('hill'), ridgeNN: nnCv('ridge'),
+    summitNN: nnCv('summit'), spurNN: nnCv('spur'), hillNN: nnCv('hill'), ridgeNN: nnCv('ridge'),
     mountainLandUnderStamp: r3(mtnUnder / Math.max(1, cls.mountain)),
     stampsOnLowland: st.filter((s) => H[Math.min(n - 1, Math.floor(s.y)) * n + Math.min(n - 1, Math.floor(s.x))] < cfg.hillLevel - 0.06).length,
     lakeCellsCoveredByStampArt: r3(lakeOcc / Math.max(1, lakeTot)),
@@ -465,7 +465,7 @@ for (const seed of seeds) {
       const a = r.cells[k - 1], b = r.cells[k];
       line(im, ((a % n) + 0.5) * S, (Math.floor(a / n) + 0.5) * S, ((b % n) + 0.5) * S, (Math.floor(b / n) + 0.5) * S, [30, 90, 220], 1, 0.8);
     }
-    const roleCol: Record<string, number[]> = { main: [220, 0, 0], shoulder: [240, 120, 0], guest: [240, 200, 0], ridge: [130, 40, 160], massif: [20, 130, 60], hill: [120, 120, 120] };
+    const roleCol: Record<string, number[]> = { main: [220, 0, 0], shoulder: [240, 120, 0], guest: [240, 200, 0], ridge: [130, 40, 160], spur: [180, 90, 200], summit: [20, 130, 60], hill: [120, 120, 120] };
     for (const s of st) {
       const c = roleCol[s.role];
       const rad = Math.max(2, Math.round(sizeOf(s) * S * 0.18));

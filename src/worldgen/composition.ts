@@ -10,9 +10,9 @@ import type { WorldConfig } from './config';
 import type { HydrologyResult } from './hydrology';
 import type { RidgeResult } from './ridges';
 
-export type StampRole = 'main' | 'shoulder' | 'guest' | 'ridge' | 'massif' | 'hill';
+export type StampRole = 'main' | 'shoulder' | 'guest' | 'ridge' | 'spur' | 'summit' | 'hill';
 
-const ROLE_RANK: Record<StampRole, number> = { main: 0, shoulder: 1, guest: 2, ridge: 3, massif: 4, hill: 5 };
+const ROLE_RANK: Record<StampRole, number> = { main: 0, shoulder: 1, guest: 2, ridge: 3, spur: 4, summit: 5, hill: 6 };
 
 export interface StampInstance {
   id: number;
@@ -45,6 +45,8 @@ export interface Candidate {
   baseScale: number;
   path: number;
   pathPos: number;
+  /** Acceptance priority inside a role, higher first (minor summits: their height). */
+  rank?: number;
 }
 
 export interface SceneComposition {
@@ -63,6 +65,8 @@ export const FAMILY_FALLBACK: Record<Family, readonly Family[]> = {
   hill: ['hill', 'range', 'flat', 'cliff', 'pinnacle'],
 };
 
+/** Height a minor summit must stand above everything within 2 cells. */
+const MINOR_RELIEF = 0.02;
 /** Cells within 0.03 of a summit's height that make it a flat top (đỉnh bằng). */
 const FLAT_TOP_CELLS = 6;
 /** East/west slope ratio that makes a summit or ridge a cliff (vách). */
@@ -168,8 +172,17 @@ export function generateCandidates(
     }
   }
 
-  // Ridge sampling: walk each path from spur end to summit.
+  // Ridge sampling: walk each path from its far end towards the summit. A path that ends at a
+  // summit (its last cell is a root of the inverted flow) is a main ridge (sống chính); one that
+  // joins another path is a spur (nhánh).
+  //  - Main ridge, crest running east-west: a range (dãy), mountain.main on high ground,
+  //    mountain.low lower down. Running north-south: stacked peaks, mountain.tall pinnacle or
+  //    cliff (ridgeFamily).
+  //  - Spur: mountain.low, cliff where one flank is much steeper, else range; scale tapers
+  //    towards the spur's end.
+  //  - Below mountainLevel both become hills.
   ridges.paths.forEach((cells, pi) => {
+    const spur = ridges.invReceiver[cells[cells.length - 1]] >= 0;
     // Chain placement: each next stamp sits where its overlap with the previous one along the
     // chain equals cfg.ridgeOverlap (V4). Image extents are estimated from the footprint width
     // (EXTENT_X/EXTENT_Y), since worldgen must not read visual data; the final scale jitter is
@@ -190,15 +203,31 @@ export function generateCandidates(
       const b = cells[k];
       const bx = cxOf(b), by = cyOf(b) + 0.6;
       const hb = H[b];
-      const key = hb >= cfg.mountainLevel + 0.1 ? 'mountain.tall' : hb >= cfg.mountainLevel ? 'mountain.low' : 'hill';
-      const family = key === 'hill' ? 'hill' : ridgeFamily(H, w, cells, k);
-      const baseScale = key === 'mountain.tall' ? 0.66 + 0.5 * Math.min(1, (hb - cfg.mountainLevel - 0.1) / 0.25) : 0.9;
+      const lift = Math.min(1, Math.max(0, (hb - cfg.mountainLevel - 0.1) / 0.25));
+      let key: string, family: Family, baseScale: number;
+      if (hb < cfg.mountainLevel) {
+        key = 'hill'; family = 'hill'; baseScale = 0.9;
+      } else if (spur) {
+        key = 'mountain.low';
+        family = slopeRatio(H, w, b % w, Math.floor(b / w)) >= CLIFF_RATIO ? 'cliff' : 'range';
+        baseScale = 0.9 * (0.65 + 0.35 * k / Math.max(1, cells.length - 1));
+      } else {
+        family = ridgeFamily(H, w, cells, k);
+        if (family === 'range') {
+          key = hb >= cfg.mountainLevel + 0.1 ? 'mountain.main' : 'mountain.low';
+          baseScale = key === 'mountain.main' ? 0.5 + 0.3 * lift : 0.9;
+        } else {
+          key = 'mountain.tall';
+          baseScale = 0.6 + 0.5 * Math.min(1, (hb - cfg.mountainLevel) / 0.35);
+        }
+      }
+      const role: StampRole = spur ? 'spur' : 'ridge';
       const fw0 = logic[key].footprint[0];
       const size = (x: number, y: number) => fw0 * stampScale(s32, key, x, y, baseScale);
       if (!last) {
         const fw = size(bx, by);
         last = { x: bx, y: by, ex: fw * EXTENT_X, ey: fw * EXTENT_Y };
-        out.push({ key, role: 'ridge', family, clusterId: clusterOfPath[pi], x: bx, y: by, baseScale, path: pi, pathPos: pos++ });
+        out.push({ key, role, family, clusterId: clusterOfPath[pi], x: bx, y: by, baseScale, path: pi, pathPos: pos++ });
         continue;
       }
       // Not yet far enough: the stamp would overlap more than the target even at b.
@@ -215,30 +244,36 @@ export function generateCandidates(
       const px: number = last.x + (bx - last.x) * hi, py: number = last.y + (by - last.y) * hi;
       const fw = size(px, py);
       last = { x: px, y: py, ex: fw * EXTENT_X, ey: fw * EXTENT_Y };
-      out.push({ key, role: 'ridge', family, clusterId: clusterOfPath[pi], x: px, y: py, baseScale, path: pi, pathPos: pos++ });
+      out.push({ key, role, family, clusterId: clusterOfPath[pi], x: px, y: py, baseScale, path: pi, pathPos: pos++ });
       k--; // the same cell may host another stamp further along
     }
   });
 
-  // Massif fill: high ground off the ridge lines still reads as mountains. A low-frequency density
-  // field gathers the fill into clumps with bare paper between them (sơ mật: dense here, open there)
-  // instead of an even lattice of cones.
-  for (let gy = 1; gy < w; gy += 3) {
-    for (let gx = 1; gx < w; gx += 3) {
-      const jx = gx + Math.floor(hash01(s32, gx, gy, 17) * 3) - 1;
-      const jy = gy + Math.floor(hash01(s32, gx, gy, 18) * 3) - 1;
-      if (jx < 0 || jy < 0 || jx >= w || jy >= w) continue;
-      const c = jy * w + jx;
-      if (hydro.sea[c] || hydro.lakeId[c] || hydro.river[c] || H[c] < cfg.mountainLevel - 0.02) continue;
-      const lift = Math.min(1, Math.max(0, (H[c] - cfg.mountainLevel) / 0.25));
-      if (clumpDensity(s32, jx, jy, 14) < 0.45 - 0.25 * lift) continue;
-      const key = H[c] >= cfg.mountainLevel + 0.1 ? 'mountain.tall' : 'mountain.low';
-      out.push({
-        key, role: 'massif', family: summitFamily(H, hydro.sea, w, jx, jy), clusterId: nearestCluster(ridges, jx, jy, w), x: jx + 0.5, y: jy + 0.5,
-        baseScale: key === 'mountain.tall' ? 0.6 + 0.45 * Math.min(1, (H[c] - cfg.mountainLevel - 0.1) / 0.25) : 0.8,
-        path: -1, pathPos: 0,
-      });
+  // Minor summits (đỉnh phụ) on high ground off the ridge lines: local maxima within 2 cells
+  // standing at least MINOR_RELIEF above their surroundings. Positions come from the terrain, not
+  // from a lattice; they are accepted highest first (rank), and the composer's overlap limits keep
+  // them apart and off ground already covered by the structure above.
+  for (let c = 0; c < w * w; c++) {
+    if (hydro.sea[c] || hydro.lakeId[c] || hydro.river[c] || H[c] < cfg.mountainLevel - 0.02) continue;
+    const x = c % w, y = (c - x) / w;
+    let isMax = true, low = H[c];
+    for (let dy = -2; dy <= 2 && isMax; dy++) {
+      for (let dx = -2; dx <= 2; dx++) {
+        const nx = x + dx, ny = y + dy;
+        if ((dx === 0 && dy === 0) || nx < 0 || ny < 0 || nx >= w || ny >= w) continue;
+        const nb = ny * w + nx;
+        if (H[nb] > H[c] || (H[nb] === H[c] && nb < c)) { isMax = false; break; }
+        if (H[nb] < low) low = H[nb];
+      }
     }
+    if (!isMax || H[c] - low < MINOR_RELIEF) continue;
+    const key = H[c] >= cfg.mountainLevel + 0.1 ? 'mountain.tall' : 'mountain.low';
+    out.push({
+      key, role: 'summit', family: summitFamily(H, hydro.sea, w, x, y), clusterId: nearestCluster(ridges, x, y, w),
+      x: x + 0.5, y: y + 1.1, rank: H[c],
+      baseScale: key === 'mountain.tall' ? 0.6 + 0.45 * Math.min(1, (H[c] - cfg.mountainLevel - 0.1) / 0.25) : 0.8,
+      path: -1, pathPos: 0,
+    });
   }
 
   // Foothills on a jittered 4-cell lattice, sparse enough to leave empty paper (lưu bạch).
@@ -345,7 +380,7 @@ function ridgeDistance(ridge: Uint8Array, w: number): Uint8Array {
 }
 
 export function canonicalCompare(a: Candidate, b: Candidate): number {
-  return ROLE_RANK[a.role] - ROLE_RANK[b.role] || a.y - b.y || a.x - b.x || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0)
+  return ROLE_RANK[a.role] - ROLE_RANK[b.role] || (b.rank ?? 0) - (a.rank ?? 0) || a.y - b.y || a.x - b.x || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0)
     || a.path - b.path || a.pathPos - b.pathPos;
 }
 
